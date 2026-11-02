@@ -41,6 +41,7 @@ class FilterService : LifecycleService() {
     private lateinit var windowManager: WindowManager
 
     private var overlayView: FilterOverlayView? = null
+    private var floatingMenu: FloatingMenuView? = null
     private var lastNotificationKey: String = ""
     private var destroyed = false
     private var gracefulStopScheduled = false
@@ -110,6 +111,7 @@ class FilterService : LifecycleService() {
         super.onConfigurationChanged(newConfig)
         // Rotation: re-measure the overlay (and possibly suppress it in landscape).
         removeOverlay()
+        floatingMenu?.onScreenChanged()
         graph.engine.recompute()
         applyState(graph.engine.state.value)
     }
@@ -117,6 +119,7 @@ class FilterService : LifecycleService() {
     override fun onDestroy() {
         destroyed = true
         removeOverlay()
+        detachFloatingMenu()
         graph.serviceRunning.value = false
         graph.overlayAttachFailed.value = false
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -128,13 +131,15 @@ class FilterService : LifecycleService() {
 
         if (!state.masterOn) {
             removeOverlay()
+            detachFloatingMenu()
             graph.overlayAttachFailed.value = false
             scheduleGracefulStop()
             maybeUpdateNotification(state)
             return
         }
 
-        val allowLandscape = graph.settingsState.value.filterLandscape
+        val settingsNow = graph.settingsState.value
+        val allowLandscape = settingsNow.filterLandscape
         val orientationOk =
             allowLandscape || resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
         val canOverlay = Settings.canDrawOverlays(this)
@@ -146,6 +151,18 @@ class FilterService : LifecycleService() {
             removeOverlay()
         }
         overlayView?.setFilter(state.tintArgb, state.tintAlpha, state.dimAlpha)
+
+        // Draggable bubble menu (optional).
+        val wantBubble = settingsNow.floatingMenuEnabled && canOverlay
+        if (wantBubble && floatingMenu == null) {
+            attachFloatingMenu(settingsNow)
+        } else if (!wantBubble && floatingMenu != null) {
+            detachFloatingMenu()
+        }
+        floatingMenu?.update(
+            filterVisible = state.overlayOn && orientationOk,
+            paused = state.paused,
+        )
 
         maybeUpdateNotification(state)
     }
@@ -221,6 +238,98 @@ class FilterService : LifecycleService() {
         }
         overlayView = null
     }
+
+    // ------------------------------------------------------------------ //
+    // Floating bubble menu
+    // ------------------------------------------------------------------ //
+
+    private fun attachFloatingMenu(settings: com.toadlight.filter.core.model.AppSettings) {
+        if (!Settings.canDrawOverlays(this)) return
+
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        val defaultX = bounds.width() - dp(72)
+        val defaultY = bounds.height() * 58 / 100
+
+        val x = settings.bubblePosX.takeIf { it != Int.MIN_VALUE } ?: defaultX
+        val y = settings.bubblePosY.takeIf { it != Int.MIN_VALUE } ?: defaultY
+
+        floatingMenu = FloatingMenuView(
+            context = this,
+            initialX = x,
+            initialY = y,
+            onAction = ::handleBubbleAction,
+            onPositionSaved = { px, py ->
+                graph.scope.launch { graph.repo.saveBubblePosition(px, py) }
+            },
+        ).also { it.attach() }
+    }
+
+    private fun detachFloatingMenu() {
+        floatingMenu?.detach()
+        floatingMenu = null
+    }
+
+    private fun handleBubbleAction(action: FloatingMenuView.Action) {
+        graph.scope.launch {
+            when (action) {
+                FloatingMenuView.Action.PLAY_PAUSE -> {
+                    val s = graph.engine.state.value
+                    when {
+                        s.paused -> graph.repo.resume()
+                        s.overlayOn || s.previewing -> graph.repo.pauseFor(30 * 60_000L)
+                        else -> {
+                            graph.repo.setMasterEnabled(true)
+                            graph.repo.startPreview(2 * 60 * 60_000L)
+                        }
+                    }
+                }
+
+                FloatingMenuView.Action.WARMER -> {
+                    graph.repo.updateActiveProfile {
+                        it.copy(colorTempK = (it.colorTempK - 300).coerceIn(1000, 6500))
+                    }
+                    nudgePreviewAfterAdjust()
+                }
+
+                FloatingMenuView.Action.COOLER -> {
+                    graph.repo.updateActiveProfile {
+                        it.copy(colorTempK = (it.colorTempK + 300).coerceIn(1000, 6500))
+                    }
+                    nudgePreviewAfterAdjust()
+                }
+
+                FloatingMenuView.Action.DIM_UP -> {
+                    graph.repo.updateActiveProfile {
+                        it.copy(dimPercent = (it.dimPercent + 10).coerceIn(0, 95))
+                    }
+                    nudgePreviewAfterAdjust()
+                }
+
+                FloatingMenuView.Action.DIM_DOWN -> {
+                    graph.repo.updateActiveProfile {
+                        it.copy(dimPercent = (it.dimPercent - 10).coerceIn(0, 95))
+                    }
+                    nudgePreviewAfterAdjust()
+                }
+
+                FloatingMenuView.Action.STOP -> {
+                    graph.repo.setMasterEnabled(false)
+                    graph.repo.endPreview()
+                }
+            }
+        }
+    }
+
+    /** After tweaking values from the bubble while the filter is hidden, show it briefly. */
+    private suspend fun nudgePreviewAfterAdjust() {
+        val s = graph.engine.state.value
+        if (s.masterOn && !s.paused && !s.overlayOn && !s.previewing) {
+            graph.repo.startPreview(2 * 60_000L)
+        }
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun realScreenSize(): android.graphics.Point {
         val bounds = windowManager.maximumWindowMetrics.bounds

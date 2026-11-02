@@ -104,6 +104,28 @@ class HomeViewModel(
         viewModelScope.launch { graph.repo.startPreview(2 * 60_000L) }
     }
 
+    /**
+     * Single smart toggle for the play/pause button: pauses a visible filter,
+     * resumes a paused one, and turns the filter on (2 h preview) when the
+     * schedule keeps it off.
+     */
+    fun playPause() {
+        viewModelScope.launch {
+            val s = graph.engine.state.value
+            when {
+                s.paused -> graph.repo.resume()
+                s.overlayOn || s.previewing -> graph.repo.pauseFor(30 * 60_000L)
+                else -> {
+                    graph.repo.setMasterEnabled(true)
+                    graph.repo.startPreview(2 * 60 * 60_000L)
+                    if (!graph.serviceRunning.value) {
+                        FilterService.start(appContext)
+                    }
+                }
+            }
+        }
+    }
+
     fun pause(durationMs: Long) {
         viewModelScope.launch {
             graph.repo.pauseFor(durationMs)

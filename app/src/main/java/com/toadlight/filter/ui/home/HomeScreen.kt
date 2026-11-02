@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.LocationOn
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.AssistChip
@@ -33,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -109,6 +112,18 @@ fun HomeScreen() {
             onMasterChange = { on ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 vm.setMaster(on)
+            },
+        )
+
+        Gap(12)
+
+        // -------------------------------------------- play / pause hero ---
+        PlayPauseHero(
+            playing = engineState.overlayOn || engineState.previewing,
+            paused = engineState.paused,
+            onToggle = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                vm.playPause()
             },
         )
 
@@ -444,6 +459,46 @@ fun HomeScreen() {
                 vm.setCustomTimes(profile!!.schedule.startMinutes, it)
                 showEndPicker = false
             },
+        )
+    }
+}
+
+@Composable
+private fun PlayPauseHero(
+    playing: Boolean,
+    paused: Boolean,
+    onToggle: () -> Unit,
+) {
+    val label = when {
+        paused -> "Resume filter"
+        playing -> "Pause 30 min"
+        else -> "Turn on now"
+    }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Surface(
+            onClick = onToggle,
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            shadowElevation = 4.dp,
+            modifier = Modifier.size(72.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    imageVector = if (playing && !paused) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                    contentDescription = label,
+                    modifier = Modifier.size(34.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

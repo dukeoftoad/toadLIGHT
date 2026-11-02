@@ -95,6 +95,12 @@ class AppRepository(private val context: Context) {
 
     suspend fun resume() = updateSettings { it.copy(pausedUntil = 0L) }
 
+    suspend fun setFloatingMenuEnabled(on: Boolean) =
+        updateSettings { it.copy(floatingMenuEnabled = on) }
+
+    suspend fun saveBubblePosition(x: Int, y: Int) =
+        updateSettings { it.copy(bubblePosX = x, bubblePosY = y) }
+
     suspend fun completeOnboarding() = updateSettings { it.copy(onboardingDone = true) }
 
     suspend fun setLocation(latitude: Double?, longitude: Double?) =

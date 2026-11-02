@@ -69,6 +69,13 @@ data class AppSettings(
     val civilTwilight: Boolean = false,
     val filterNavbar: Boolean = true,
     val filterLandscape: Boolean = false,
+
+    /** Draggable floating bubble menu over the screen while the filter runs. */
+    val floatingMenuEnabled: Boolean = true,
+
+    /** Last remembered bubble position (top-left, raw px). [Int.MIN_VALUE] = unset. */
+    val bubblePosX: Int = Int.MIN_VALUE,
+    val bubblePosY: Int = Int.MIN_VALUE,
     val perAppEnabled: Boolean = false,
     val latitude: Double? = null,
     val longitude: Double? = null,

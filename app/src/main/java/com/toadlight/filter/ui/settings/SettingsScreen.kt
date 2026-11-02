@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Palette
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Thermostat
 import androidx.compose.material.icons.rounded.WbSunny
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +76,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setCivilTwilight(on: Boolean) = update { it.copy(civilTwilight = on) }
     fun setFilterNavbar(on: Boolean) = update { it.copy(filterNavbar = on) }
     fun setFilterLandscape(on: Boolean) = update { it.copy(filterLandscape = on) }
+    fun setFloatingMenu(on: Boolean) = update { it.copy(floatingMenuEnabled = on) }
     fun setManualLocation(lat: Double?, lon: Double?) {
         graph.scope.launch { graph.repo.setLocation(lat, lon) }
     }
@@ -91,6 +94,7 @@ fun SettingsScreen() {
     var showThemeDialog by remember { mutableStateOf(false) }
     var showManualLocation by remember { mutableStateOf(false) }
     var showHowItWorks by remember { mutableStateOf(false) }
+    var showTileHelp by remember { mutableStateOf(false) }
     var locationStatus by remember { mutableStateOf<String?>(null) }
 
     val pm = context.getSystemService(PowerManager::class.java)
@@ -220,6 +224,38 @@ fun SettingsScreen() {
                     trailing = {
                         Text(
                             "Edit",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    },
+                )
+            }
+
+            Gap(16)
+
+            // ------------------------------------------------ quick controls --
+            SectionCard(title = "Quick controls") {
+                SettingsRow(
+                    icon = Icons.Rounded.Apps,
+                    title = "Floating menu",
+                    subtitle = "A small draggable bubble with play/pause and quick tweaks, " +
+                        "always on screen while the filter runs",
+                    trailing = {
+                        Switch(
+                            checked = settings.floatingMenuEnabled,
+                            onCheckedChange = { vm.setFloatingMenu(it) },
+                        )
+                    },
+                )
+                SettingsRow(
+                    icon = Icons.Rounded.Widgets,
+                    title = "Quick Settings tile",
+                    subtitle = "Toggle the filter straight from your notification shade",
+                    onClick = { showTileHelp = true },
+                    trailing = {
+                        Text(
+                            "How",
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
@@ -380,6 +416,27 @@ fun SettingsScreen() {
             onSave = { lat, lon ->
                 vm.setManualLocation(lat, lon)
                 showManualLocation = false
+            },
+        )
+    }
+
+    if (showTileHelp) {
+        AlertDialog(
+            onDismissRequest = { showTileHelp = false },
+            title = { Text("Add the quick tile") },
+            text = {
+                Text(
+                    "Android does not let apps add tiles by themselves, but it takes " +
+                        "four quick steps:\n\n" +
+                        "1. Swipe down twice from the top of the screen\n" +
+                        "2. Tap the ✏️ edit / plus button\n" +
+                        "3. Find \"toadLIGHT filter\" in the list\n" +
+                        "4. Drag it into your tiles\n\n" +
+                        "After that, one tap on the tile toggles the filter anytime.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showTileHelp = false }) { Text("Got it") }
             },
         )
     }

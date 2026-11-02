@@ -14,7 +14,8 @@ After sunset, toadLIGHT warms your screen with a translucent amber veil and can 
 - **Profiles** – Evening, Bed reading, and anything you create. Each profile keeps its own filter values *and* its own schedule.
 - **Per-app behavior** – turn the filter off inside chosen apps (games, galleries) or give an app its own settings. Powered by a privacy-first accessibility service that reads only the foreground package name – never screen content.
 - **Material You** – dynamic colors from your wallpaper, dark/AMOLED/light themes.
-- **Quick controls everywhere** – quick-settings tile, notification actions (pause / resume / stop), quick pause chips (1 min / 30 min / 1 hour).
+- **Play/pause hero button** – one big button that always does the right thing: pause a running filter, resume a paused one, or turn the warmth on now.
+- **Quick controls everywhere** – a draggable floating bubble menu over the screen (play/pause, warmer, cooler, dim, stop), a quick-settings tile (with an in-app "Add" button), notification actions and quick pause chips (1 min / 30 min / 1 hour).
 - **Gentle fades** – configurable transition duration (0–120 min) so sunset and sunrise fade in and out smoothly; interrupted fades continue seamlessly.
 - **Starts on boot**, survives app updates, reacts to clock/time-zone changes.
 - **On now** – need the warmth before sunset? Turn the filter on immediately for two hours; the schedule takes over automatically afterwards. Dragging any slider during the day starts a short live preview on the real screen.
