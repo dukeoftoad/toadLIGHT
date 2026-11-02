@@ -21,6 +21,7 @@ class HomeViewModel(
     val engineState = graph.engine.state
     val settings = graph.settingsState
     val activeProfile = graph.activeProfileState
+    val profiles = graph.profilesState
     val serviceRunning = graph.serviceRunning
     val overlayAttachFailed = graph.overlayAttachFailed
 
@@ -32,6 +33,7 @@ class HomeViewModel(
     private val tempPipe = MutableStateFlow<Int?>(null)
     private val intensityPipe = MutableStateFlow<Int?>(null)
     private val dimPipe = MutableStateFlow<Int?>(null)
+    private val paperPipe = MutableStateFlow<Int?>(null)
 
     init {
         viewModelScope.launch {
@@ -50,6 +52,12 @@ class HomeViewModel(
             @OptIn(kotlinx.coroutines.FlowPreview::class)
             dimPipe.filterNotNull().debounce(200).collect { v ->
                 graph.repo.updateActiveProfile { it.copy(dimPercent = v) }
+            }
+        }
+        viewModelScope.launch {
+            @OptIn(kotlinx.coroutines.FlowPreview::class)
+            paperPipe.filterNotNull().debounce(200).collect { v ->
+                graph.repo.updateActiveProfile { it.copy(paperIntensityPercent = v) }
             }
         }
     }
@@ -137,6 +145,22 @@ class HomeViewModel(
 
     fun resume() {
         viewModelScope.launch { graph.repo.resume() }
+    }
+
+    /** Switches the active mode/profile — applies globally, everywhere. */
+    fun setActiveProfile(id: String) {
+        viewModelScope.launch { graph.repo.setActiveProfile(id) }
+    }
+
+    /** Enables or disables the paper-like finish on the active profile. */
+    fun setPaper(on: Boolean) {
+        viewModelScope.launch {
+            graph.repo.updateActiveProfile { it.copy(paperFinish = on) }
+        }
+    }
+
+    fun setPaperIntensity(value: Int) {
+        paperPipe.value = value.coerceIn(0, 100)
     }
 
     fun setTemp(value: Int) {

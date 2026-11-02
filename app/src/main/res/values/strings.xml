@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">toadLIGHT</string>
     <string name="tile_label">toadLIGHT filter</string>
+    <string name="mode_tile_label">toadLIGHT mode</string>
     <string name="accessibility_label">toadLIGHT app watcher</string>
     <string name="accessibility_description">toadLIGHT uses this service only to detect which app is in the foreground so it can apply per-app filter behavior. It never reads or records screen content.</string>
 
@@ -10,4 +11,5 @@
     <string name="notif_action_pause">Pause 30m</string>
     <string name="notif_action_resume">Resume</string>
     <string name="notif_action_stop">Stop</string>
+    <string name="notif_action_next_mode">Next mode</string>
 </resources>

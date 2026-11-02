@@ -15,11 +15,15 @@ After sunset, toadLIGHT warms your screen with a translucent amber veil and can 
 - **Per-app behavior** – turn the filter off inside chosen apps (games, galleries) or give an app its own settings. Powered by a privacy-first accessibility service that reads only the foreground package name – never screen content.
 - **Material You** – dynamic colors from your wallpaper, dark/AMOLED/light themes.
 - **Play/pause hero button** – one big button that always does the right thing: pause a running filter, resume a paused one, or turn the warmth on now.
-- **Quick controls everywhere** – a draggable floating bubble menu over the screen (play/pause, warmer, cooler, dim, stop), a quick-settings tile (with an in-app "Add" button), notification actions and quick pause chips (1 min / 30 min / 1 hour).
-- **Gentle fades** – configurable transition duration (0–120 min) so sunset and sunrise fade in and out smoothly; interrupted fades continue seamlessly.
+- **Paper mode** – an optional paper-like finish: a warm cream tone plus a fibrous grain texture, with a 0–100% intensity slider and live previews. The same texture renders in-app and on the real overlay.
+- **GPU rendering** – the overlay runs on a hardware layer by default (GPU-composited grain); a CPU fallback exists for the rare device with OEM overlay glitches.
+- **Filter the whole screen** – one system-wide overlay covers every app, the home and lock screens (lock-screen filtering can be switched off), and the status bar / navigation area. The one Android limit: the fully expanded notification shade is drawn above any third-party app, so no screen-filter app can tint it.
+- **Wallpaper preview** – see your actual home and lock-screen wallpapers under the current filter, right in the app.
+- **Quick controls everywhere** – a draggable floating bubble menu over the screen (play/pause, warmer, cooler, dim, stop), quick-settings tiles for the filter *and* for cycling modes, notification actions and quick pause chips (1 min / 30 min / 1 hour).
+- **Gentle fades** – configurable transition duration (0–120 min) so sunset and sunrise fade in and out smoothly, plus a separate quick fade (0–2 s) for manual toggles and mode switches; interrupted fades continue seamlessly.
 - **Starts on boot**, survives app updates, reacts to clock/time-zone changes.
 - **On now** – need the warmth before sunset? Turn the filter on immediately for two hours; the schedule takes over automatically afterwards. Dragging any slider during the day starts a short live preview on the real screen.
-- **No paywall, no ads, no network** – everything is free and all data stays on the device.
+- **No paywall, no ads, no network** – everything is free and all data stays on the device. The app requests no `INTERNET` permission, and Android backup / device-to-device migration are disabled so settings never leave the phone.
 
 ## Building
 

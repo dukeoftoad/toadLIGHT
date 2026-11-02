@@ -32,6 +32,13 @@ data class EngineState(
     val tintArgb: Int = 0,
     val tintAlpha: Float = 0f,
     val dimAlpha: Float = 0f,
+    val paperOn: Boolean = false,
+    val paperAlpha: Float = 0f,
+    val paperIntensityPercent: Int = 0,
+    /** Duration of the transition currently in progress, if any. */
+    val fadeMs: Long = 0L,
+    /** True on the recompute right after a profile/mode switch (view cross-fades). */
+    val colorFading: Boolean = false,
     val scheduleOpen: Boolean = false,
     val previewing: Boolean = false,
     val previewEndsAt: Long = 0L,
@@ -71,6 +78,14 @@ class FilterEngine(private val graph: AppGraph) {
 
     /** Last blend the engine emitted; used so interrupted fades resume smoothly. */
     private var lastBlend = 0f
+
+    // Flip-cause tracking: manual causes get the quick fade, astronomical
+    // flips keep the long sunset/sunrise fade.
+    private var lastProfileId: String? = null
+    private var lastMaster: Boolean? = null
+    private var lastPaused: Boolean? = null
+    private var lastPreviewing: Boolean? = null
+    private var lastSuppress: Boolean? = null
 
     fun observe(scope: CoroutineScope) {
         scope.launch {
@@ -136,17 +151,32 @@ class FilterEngine(private val graph: AppGraph) {
         val effectiveOpen = window.open || previewing
         val newTarget = settings.masterEnabled && !paused && !suppress && effectiveOpen
 
-        durationMs = settings.transitionMinutes * 60_000L
+        // A flip is "manual" when a user action caused it (master toggle,
+        // pause/resume, preview start/expiry, per-app suppression) — including
+        // the moment such a flag returns to neutral. Those transitions use the
+        // quick fade; pure schedule flips (sunset/sunrise) use the long fade.
+        val manualCause = paused || !settings.masterEnabled || suppress || previewing ||
+            lastMaster != settings.masterEnabled ||
+            lastPaused != paused ||
+            lastPreviewing != previewing ||
+            lastSuppress != suppress
+        val profileSwitched = lastProfileId != null && profile.id != lastProfileId
+
+        lastProfileId = profile.id
+        lastMaster = settings.masterEnabled
+        lastPaused = paused
+        lastPreviewing = previewing
+        lastSuppress = suppress
+
         if (newTarget != targetOn) {
             blendAtFlip = lastBlend
             transitionStartMs = now
             targetOn = newTarget
+            durationMs = if (manualCause) settings.quickTransitionMs.toLong()
+                         else settings.transitionMinutes * 60_000L
         }
 
-        // A preview snaps on (and back off) instead of using the long sunset fade,
-        // so "On now" always gives immediate, obvious feedback.
-        val instant = paused || !settings.masterEnabled || suppress || previewing
-        val blend = blendValue(newTarget, now, instant)
+        val blend = blendValue(newTarget, now)
         lastBlend = blend
 
         val params: EngineParams = if (override?.mode == OverrideMode.CUSTOM && effectiveOpen && !paused) {
@@ -156,6 +186,8 @@ class FilterEngine(private val graph: AppGraph) {
         }
 
         val tintArgb = ColorTemperature.argb(params.colorTempK)
+        val paperOn = profile.paperFinish
+        val paperIntensity = profile.paperIntensityPercent.coerceIn(0, 100)
 
         val nextChange = listOfNotNull(
             window.nextChangeAt,
@@ -168,10 +200,15 @@ class FilterEngine(private val graph: AppGraph) {
             paused = paused,
             pauseEndsAt = settings.pausedUntil,
             overlayOn = settings.masterEnabled && blend > 0.004f,
-            fading = !instant && durationMs > 0 && blend > 0.004f && blend < 0.996f,
+            fading = durationMs > 0 && blend > 0.004f && blend < 0.996f,
             tintArgb = tintArgb,
             tintAlpha = (params.intensityPercent / 100f) * blend,
             dimAlpha = (params.dimPercent / 100f) * 0.95f * blend,
+            paperOn = paperOn,
+            paperAlpha = if (paperOn) (paperIntensity / 100f) * blend else 0f,
+            paperIntensityPercent = if (paperOn) paperIntensity else 0,
+            fadeMs = durationMs,
+            colorFading = profileSwitched && settings.quickTransitionMs > 0,
             scheduleOpen = window.open,
             previewing = previewing,
             previewEndsAt = if (previewing) settings.previewUntil else 0L,
@@ -193,14 +230,18 @@ class FilterEngine(private val graph: AppGraph) {
         val s = _state.value
         val now = System.currentTimeMillis()
         var delay = 60_000L
-        if (s.fading) delay = 1_000L
+        if (s.fading) {
+            // Quick fades tick fast for smoothness; the multi-minute
+            // astronomical fades keep the relaxed 1 s rhythm.
+            delay = if (s.fadeMs in 1..3500L) 120L else 1_000L
+        }
         s.nextChangeAt?.let { event ->
             if (event > now) delay = minOf(delay, event - now + 250L)
         }
         if (s.paused && s.pauseEndsAt > now) {
             delay = minOf(delay, s.pauseEndsAt - now + 250L)
         }
-        return delay.coerceIn(500L, 60_000L)
+        return delay.coerceIn(120L, 60_000L)
     }
 
     /**
@@ -208,8 +249,8 @@ class FilterEngine(private val graph: AppGraph) {
      * remembers the blend at the moment of the flip so an interrupted fade
      * continues smoothly in the other direction.
      */
-    private fun blendValue(forTargetOn: Boolean, now: Long, instant: Boolean): Float {
-        if (instant || durationMs <= 0L) return if (forTargetOn) 1f else 0f
+    private fun blendValue(forTargetOn: Boolean, now: Long): Float {
+        if (durationMs <= 0L) return if (forTargetOn) 1f else 0f
         val progress = ((now - transitionStartMs).toFloat() / durationMs).coerceIn(0f, 1f)
         return if (forTargetOn) {
             blendAtFlip + (1f - blendAtFlip) * progress

@@ -19,11 +19,16 @@ data class Profile(
     val colorTempK: Int = 3200,
     val intensityPercent: Int = 55,
     val dimPercent: Int = 15,
+    /** Paper-like finish: cream tone + fibrous grain over the warm tint. */
+    val paperFinish: Boolean = false,
+    /** How visible the paper grain is, 0..100. */
+    val paperIntensityPercent: Int = 35,
     val schedule: Schedule = Schedule(),
     val builtIn: Boolean = false,
 ) {
     val summary: String
-        get() = "${colorTempK}K · ${intensityPercent}% warmth · ${dimPercent}% dim"
+        get() = "${colorTempK}K · ${intensityPercent}% warmth · ${dimPercent}% dim" +
+            if (paperFinish) " · paper" else ""
 }
 
 @Serializable
@@ -72,6 +77,15 @@ data class AppSettings(
 
     /** Draggable floating bubble menu over the screen while the filter runs. */
     val floatingMenuEnabled: Boolean = true,
+
+    /** Render the overlay on the GPU (hardware layer). Turn off for OEM glitches. */
+    val useGpuRendering: Boolean = true,
+
+    /** Fade duration for manual on/off, pause, preview and mode switches, ms (0 = instant). */
+    val quickTransitionMs: Int = 600,
+
+    /** Keep warming the screen while the lock screen / keyguard is showing. */
+    val filterLockScreen: Boolean = true,
 
     /** Last remembered bubble position (top-left, raw px). [Int.MIN_VALUE] = unset. */
     val bubblePosX: Int = Int.MIN_VALUE,

@@ -23,8 +23,8 @@ import kotlin.math.abs
  *
  * - The bubble is a small always-visible circle while the filter runs.
  *   Drag it anywhere; the position is reported back to be persisted.
- * - Tapping the bubble toggles a popup menu (play/pause, warmer, cooler,
- *   dim, stop). The menu closes on outside touch or after an action.
+ * - Tapping the bubble toggles a popup menu (play/pause, next mode, warmer,
+ *   cooler, dim, stop). The menu closes on outside touch or after an action.
  */
 class FloatingMenuView(
     context: Context,
@@ -34,7 +34,7 @@ class FloatingMenuView(
     private val onPositionSaved: (Int, Int) -> Unit,
 ) {
 
-    enum class Action { PLAY_PAUSE, WARMER, COOLER, DIM_UP, DIM_DOWN, STOP }
+    enum class Action { PLAY_PAUSE, NEXT_MODE, WARMER, COOLER, DIM_UP, DIM_DOWN, STOP }
 
     private val appContext = context.applicationContext
     private val windowManager = appContext.getSystemService(WindowManager::class.java)
@@ -46,6 +46,7 @@ class FloatingMenuView(
     private val bubble: ImageView
     private val menu: LinearLayout
     private val playPauseItem: TextView
+    private val modeItem: TextView
     private var menuAttached = false
 
     private val bubbleParams = WindowManager.LayoutParams(
@@ -146,6 +147,8 @@ class FloatingMenuView(
 
         playPauseItem = menuItem("Pause 30 min", Action.PLAY_PAUSE, highlight = true)
         menu.addView(playPauseItem)
+        modeItem = menuItem("Mode · —", Action.NEXT_MODE)
+        menu.addView(modeItem)
         menu.addView(menuItem("Warmer · −300K", Action.WARMER))
         menu.addView(menuItem("Cooler · +300K", Action.COOLER))
         menu.addView(menuItem("Dim +10%", Action.DIM_UP))
@@ -178,12 +181,13 @@ class FloatingMenuView(
     }
 
     /**
-     * Reflects the current engine state: bubble icon + first menu label.
+     * Reflects the current engine state: bubble icon + first menu labels.
      *
      * @param filterVisible the overlay is currently warming the screen.
      * @param paused the filter is paused (tap should resume).
+     * @param modeName name of the active profile/mode to display.
      */
-    fun update(filterVisible: Boolean, paused: Boolean) {
+    fun update(filterVisible: Boolean, paused: Boolean, modeName: String) {
         val showPlay = paused || !filterVisible
         bubble.setImageResource(if (showPlay) R.drawable.ic_play else R.drawable.ic_pause)
         playPauseItem.text = when {
@@ -191,6 +195,7 @@ class FloatingMenuView(
             filterVisible -> "Pause 30 min"
             else -> "Turn on now"
         }
+        modeItem.text = "Mode · $modeName ›"
     }
 
     // ------------------------------------------------------------------ //

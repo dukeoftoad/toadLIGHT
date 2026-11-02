@@ -127,6 +127,24 @@ class AppRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Switches the active profile/mode to the next one in the list (wrapping
+     * around). Used by the notification action, the Mode quick tile and the
+     * floating bubble so the mode can be changed from anywhere.
+     *
+     * @return the newly active profile, or null when switching is impossible
+     *   (no profiles stored yet).
+     */
+    suspend fun cycleNextProfile(): Profile? {
+        val list = profilesFlow.first()
+        if (list.isEmpty()) return null
+        val active = activeProfileIdFlow.first()
+        val index = list.indexOfFirst { it.id == active }.takeIf { it >= 0 } ?: 0
+        val next = list[(index + 1) % list.size]
+        setActiveProfile(next.id)
+        return next
+    }
+
     suspend fun addProfile(profile: Profile) {
         saveProfiles(profilesFlow.first() + profile, null)
     }

@@ -1,11 +1,14 @@
 package com.toadlight.filter.filter
 
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
@@ -33,7 +36,9 @@ import java.time.format.DateTimeFormatter
  * - Runs a ticker that wakes the engine right before the next schedule event
  *   (sunset, sunrise, custom boundary, pause expiry or in-progress fade),
  *   so nothing needs exact alarms.
- * - Shows an actionable notification (pause / resume / stop).
+ * - Hides the overlay while the keyguard is up when the user turned
+ *   lock-screen filtering off.
+ * - Shows an actionable notification (pause / resume / next mode / stop).
  */
 class FilterService : LifecycleService() {
 
@@ -45,6 +50,11 @@ class FilterService : LifecycleService() {
     private var lastNotificationKey: String = ""
     private var destroyed = false
     private var gracefulStopScheduled = false
+    private var lastGpuMode: Boolean? = null
+
+    /** True while the keyguard / lock screen is showing. */
+    @Volatile
+    private var keyguardLocked = false
 
     /**
      * App-level scope for settings writes. Writes launched from the service's
@@ -52,6 +62,16 @@ class FilterService : LifecycleService() {
      * stopped itself, leaving settings saying "on" while nothing ran.
      */
     private val appScope get() = graph.scope
+
+    private val keyguardReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val locked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+            if (locked != keyguardLocked) {
+                keyguardLocked = locked
+                applyState(graph.engine.state.value)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -62,6 +82,20 @@ class FilterService : LifecycleService() {
 
         createNotificationChannel()
         startForegroundTyped(buildNotification(graph.engine.state.value))
+
+        // SYSTEM_ALERT_WINDOW overlays normally render above the keyguard, so
+        // home and lock screen wallpapers get filtered too. When the user
+        // turns that off, watch lock/unlock to hide and restore the overlay.
+        ContextCompat.registerReceiver(
+            this,
+            keyguardReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            },
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
 
         lifecycleScope.launch {
             graph.engine.state.collect { applyState(it) }
@@ -102,6 +136,7 @@ class FilterService : LifecycleService() {
             ACTION_PAUSE_30M -> appScope.launch { graph.repo.pauseFor(30 * 60_000L) }
             ACTION_PAUSE_1H -> appScope.launch { graph.repo.pauseFor(60 * 60_000L) }
             ACTION_RESUME -> appScope.launch { graph.repo.resume() }
+            ACTION_NEXT_MODE -> appScope.launch { graph.repo.cycleNextProfile() }
             ACTION_REFRESH -> graph.engine.recompute()
         }
         return START_STICKY
@@ -118,6 +153,7 @@ class FilterService : LifecycleService() {
 
     override fun onDestroy() {
         destroyed = true
+        runCatching { unregisterReceiver(keyguardReceiver) }
         removeOverlay()
         detachFloatingMenu()
         graph.serviceRunning.value = false
@@ -129,31 +165,33 @@ class FilterService : LifecycleService() {
     private fun applyState(state: EngineState) {
         if (destroyed) return
 
-        if (!state.masterOn) {
-            removeOverlay()
-            detachFloatingMenu()
-            graph.overlayAttachFailed.value = false
-            scheduleGracefulStop()
-            maybeUpdateNotification(state)
-            return
-        }
-
         val settingsNow = graph.settingsState.value
         val allowLandscape = settingsNow.filterLandscape
         val orientationOk =
             allowLandscape || resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE
         val canOverlay = Settings.canDrawOverlays(this)
+        val lockScreenOk = settingsNow.filterLockScreen || !keyguardLocked
+        val gpuNow = settingsNow.useGpuRendering
 
-        val wantOverlay = state.overlayOn && orientationOk && canOverlay
-        if (wantOverlay && overlayView == null) {
-            addOverlay()
+        // Keep the overlay attached while a fade-out is still running so the
+        // quick transition plays out instead of snapping off.
+        val wantOverlay = (state.overlayOn || state.fading) && orientationOk && canOverlay && lockScreenOk
+        if (wantOverlay && (overlayView == null || lastGpuMode != gpuNow)) {
+            removeOverlay()
+            addOverlay(gpuNow)
         } else if (!wantOverlay && overlayView != null) {
             removeOverlay()
         }
-        overlayView?.setFilter(state.tintArgb, state.tintAlpha, state.dimAlpha)
+        overlayView?.setFilter(
+            state.tintArgb,
+            state.tintAlpha,
+            state.dimAlpha,
+            state.paperAlpha,
+            animateMs = if (state.colorFading) settingsNow.quickTransitionMs.toLong() else 0L,
+        )
 
         // Draggable bubble menu (optional).
-        val wantBubble = settingsNow.floatingMenuEnabled && canOverlay
+        val wantBubble = settingsNow.floatingMenuEnabled && canOverlay && state.masterOn
         if (wantBubble && floatingMenu == null) {
             attachFloatingMenu(settingsNow)
         } else if (!wantBubble && floatingMenu != null) {
@@ -162,8 +200,13 @@ class FilterService : LifecycleService() {
         floatingMenu?.update(
             filterVisible = state.overlayOn && orientationOk,
             paused = state.paused,
+            modeName = state.profileName,
         )
 
+        if (!state.masterOn) {
+            graph.overlayAttachFailed.value = false
+            scheduleGracefulStop()
+        }
         maybeUpdateNotification(state)
     }
 
@@ -172,12 +215,14 @@ class FilterService : LifecycleService() {
      * before really stopping. This covers two races: (a) the user flips the
      * switch back on within a second, (b) a stale StateFlow snapshot still
      * said "off" while the freshly written "on" lands a moment later.
+     * The grace period also leaves room for a quick fade-out to finish.
      */
     private fun scheduleGracefulStop() {
         if (gracefulStopScheduled) return
         gracefulStopScheduled = true
+        val fadeRoom = graph.settingsState.value.quickTransitionMs + 400L
         lifecycleScope.launch {
-            delay(1500)
+            delay(maxOf(1500L, fadeRoom))
             gracefulStopScheduled = false
             if (destroyed) return@launch
             if (!graph.settingsState.value.masterEnabled) {
@@ -186,8 +231,8 @@ class FilterService : LifecycleService() {
         }
     }
 
-    private fun addOverlay() {
-        if (overlayView != null || !Settings.canDrawOverlays(this)) return
+    private fun addOverlay(gpu: Boolean) {
+        if (!Settings.canDrawOverlays(this)) return
 
         val navbarFilter = graph.settingsState.value.filterNavbar
         val flags = WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
@@ -220,10 +265,11 @@ class FilterService : LifecycleService() {
             y = 0
         }
 
-        val view = FilterOverlayView(this)
+        val view = FilterOverlayView(this).apply { gpuMode = gpu }
         runCatching {
             windowManager.addView(view, params)
             overlayView = view
+            lastGpuMode = gpu
             graph.overlayAttachFailed.value = false
         }.onFailure {
             // Some OEMs reject the window (battery savers, "display pop-up"
@@ -283,6 +329,8 @@ class FilterService : LifecycleService() {
                         }
                     }
                 }
+
+                FloatingMenuView.Action.NEXT_MODE -> graph.repo.cycleNextProfile()
 
                 FloatingMenuView.Action.WARMER -> {
                     graph.repo.updateActiveProfile {
@@ -462,6 +510,7 @@ class FilterService : LifecycleService() {
                 } else {
                     addAction(action(ACTION_PAUSE_30M, getString(R.string.notif_action_pause)))
                 }
+                addAction(action(ACTION_NEXT_MODE, getString(R.string.notif_action_next_mode)))
                 addAction(action(ACTION_STOP, getString(R.string.notif_action_stop)))
             }
             .build()
@@ -477,6 +526,7 @@ class FilterService : LifecycleService() {
         const val ACTION_PAUSE_30M = "com.toadlight.filter.action.PAUSE_30M"
         const val ACTION_PAUSE_1H = "com.toadlight.filter.action.PAUSE_1H"
         const val ACTION_RESUME = "com.toadlight.filter.action.RESUME"
+        const val ACTION_NEXT_MODE = "com.toadlight.filter.action.NEXT_MODE"
         const val ACTION_REFRESH = "com.toadlight.filter.action.REFRESH"
 
         /** Idempotent start; safe to call when already running. */

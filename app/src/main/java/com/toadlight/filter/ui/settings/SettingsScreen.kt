@@ -77,6 +77,9 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setFilterNavbar(on: Boolean) = update { it.copy(filterNavbar = on) }
     fun setFilterLandscape(on: Boolean) = update { it.copy(filterLandscape = on) }
     fun setFloatingMenu(on: Boolean) = update { it.copy(floatingMenuEnabled = on) }
+    fun setGpuRendering(on: Boolean) = update { it.copy(useGpuRendering = on) }
+    fun setFilterLockScreen(on: Boolean) = update { it.copy(filterLockScreen = on) }
+    fun setQuickTransition(ms: Int) = update { it.copy(quickTransitionMs = ms.coerceIn(0, 2000)) }
     fun setManualLocation(lat: Double?, lon: Double?) {
         graph.scope.launch { graph.repo.setLocation(lat, lon) }
     }
@@ -248,10 +251,19 @@ fun SettingsScreen() {
                         )
                     },
                 )
+                LabeledSlider(
+                    label = "Toggle fade",
+                    valueText = quickFadeLabel(settings.quickTransitionMs),
+                    value = settings.quickTransitionMs.toFloat(),
+                    onValueChange = { vm.setQuickTransition(it.toInt()) },
+                    valueRange = 0f..2000f,
+                    steps = 19,
+                )
                 SettingsRow(
                     icon = Icons.Rounded.Widgets,
-                    title = "Quick Settings tile",
-                    subtitle = "Toggle the filter straight from your notification shade",
+                    title = "Quick Settings tiles",
+                    subtitle = "Filter and Mode tiles – toggle and switch modes " +
+                        "straight from your notification shade",
                     onClick = { showTileHelp = true },
                     trailing = {
                         Text(
@@ -286,6 +298,27 @@ fun SettingsScreen() {
                         Switch(
                             checked = settings.filterLandscape,
                             onCheckedChange = { vm.setFilterLandscape(it) },
+                        )
+                    },
+                )
+                SettingsRow(
+                    title = "Filter the lock screen",
+                    subtitle = "Keep warming the screen while it is locked",
+                    trailing = {
+                        Switch(
+                            checked = settings.filterLockScreen,
+                            onCheckedChange = { vm.setFilterLockScreen(it) },
+                        )
+                    },
+                )
+                SettingsRow(
+                    title = "GPU rendering",
+                    subtitle = "Hardware-accelerated overlay (default). " +
+                        "Turn off if your device shows flicker or torn colors",
+                    trailing = {
+                        Switch(
+                            checked = settings.useGpuRendering,
+                            onCheckedChange = { vm.setGpuRendering(it) },
                         )
                     },
                 )
@@ -449,9 +482,14 @@ fun SettingsScreen() {
                 Text(
                     "toadLIGHT draws a translucent, touch-transparent window over the whole screen " +
                         "(that's why it needs the \"Display over other apps\" permission). The window paints " +
-                        "two layers: a warm color tint and a black dimming layer.\n\n" +
+                        "a warm color tint, an optional paper finish (cream tone + grain) and a black " +
+                        "dimming layer – on the GPU by default.\n\n" +
                         "Sun times come from the classic sunrise equation used by NOAA's solar calculators – " +
                         "computed on-device from your coordinates, offline, with no network access.\n\n" +
+                        "The overlay is one system-wide window, so it covers every app, the home screen, " +
+                        "the status bar and (optionally) the lock screen. One Android limitation: when you " +
+                        "pull the notification shade all the way down, Android draws it above every " +
+                        "third-party app – no screen-filter app can tint it.\n\n" +
                         "A small foreground service keeps the filter alive, wakes up for sunset/sunrise, " +
                         "and shows notification controls. The optional accessibility service only reports " +
                         "which app is in the foreground (package name only – never screen content) so " +
@@ -471,6 +509,12 @@ private fun themeLabel(mode: ThemeMode): String = when (mode) {
     ThemeMode.DARK -> "Dark"
     ThemeMode.AMOLED -> "AMOLED black"
     ThemeMode.LIGHT -> "Light"
+}
+
+private fun quickFadeLabel(ms: Int): String = when {
+    ms <= 0 -> "Instant"
+    ms < 1000 -> "${ms} ms"
+    else -> String.format("%.1f s", ms / 1000f)
 }
 
 private fun offsetLabel(minutes: Int): String = when {

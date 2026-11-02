@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,8 +19,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.LocationOn
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,23 +45,36 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.ImageShader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.toadlight.filter.appGraph
 import com.toadlight.filter.core.color.ColorTemperature
 import com.toadlight.filter.core.model.ScheduleMode
+import com.toadlight.filter.filter.PaperGrain
+import com.toadlight.filter.filter.WallpaperSource
+import com.toadlight.filter.filter.WallpaperSnapshot
 import com.toadlight.filter.ui.components.Gap
+import com.toadlight.filter.ui.components.HelperText
 import com.toadlight.filter.ui.components.LabeledSlider
 import com.toadlight.filter.ui.components.SectionCard
 import com.toadlight.filter.ui.components.TimeField
@@ -77,12 +94,17 @@ fun HomeScreen() {
     val engineState by vm.engineState.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val profile by vm.activeProfile.collectAsStateWithLifecycle()
+    val allProfiles by vm.profiles.collectAsStateWithLifecycle()
     val locationStatus by vm.locationStatus.collectAsStateWithLifecycle()
     val serviceRunning by vm.serviceRunning.collectAsStateWithLifecycle()
     val overlayAttachFailed by vm.overlayAttachFailed.collectAsStateWithLifecycle()
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
+    var wallpaperReload by remember { mutableStateOf(0) }
+    val wallpaper by produceState<WallpaperSnapshot?>(null, wallpaperReload) {
+        value = WallpaperSource.load(context)
+    }
 
     var notifGranted by remember {
         mutableStateOf(
@@ -126,6 +148,38 @@ fun HomeScreen() {
                 vm.playPause()
             },
         )
+
+        // ------------------------------------------- mode quick switch ---
+        if (allProfiles.size > 1) {
+            Gap(12)
+            SectionCard(title = "Modes") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    allProfiles.forEach { p ->
+                        FilterChip(
+                            selected = p.id == profile?.id,
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                vm.setActiveProfile(p.id)
+                            },
+                            label = { Text(p.name + if (p.paperFinish) " · paper" else "") },
+                            leadingIcon = {
+                                TintDot(p.colorTempK, p.intensityPercent, p.dimPercent, size = 12)
+                            },
+                        )
+                    }
+                }
+                Gap(8)
+                HelperText(
+                    "The active mode applies everywhere: here, the notification's Next-mode " +
+                        "button, the quick-settings Mode tile, the floating bubble and the lock screen.",
+                )
+            }
+        }
 
         if (!Settings.canDrawOverlays(context)) {
             Gap(12)
@@ -286,10 +340,92 @@ fun HomeScreen() {
                     },
                 )
                 Gap()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Paper finish", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Cream tone + fibrous grain for a paper-like screen",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = p.paperFinish,
+                        onCheckedChange = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            vm.nudgePreview()
+                            vm.setPaper(it)
+                        },
+                    )
+                }
+                if (p.paperFinish) {
+                    Gap()
+                    var paper by remember(p.id) { mutableStateOf(p.paperIntensityPercent.toFloat()) }
+                    LabeledSlider(
+                        label = "Paper texture",
+                        valueText = "${paper.toInt()}%",
+                        value = paper,
+                        onValueChange = {
+                            vm.nudgePreview()
+                            paper = it
+                            vm.setPaperIntensity(it.toInt())
+                        },
+                    )
+                }
+                Gap()
                 Text(
                     "Lower Kelvin = less blue light. Add dimming for dark rooms without losing contrast.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Gap(16)
+
+            // ---------------------------------------------- wallpaper ---
+            SectionCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Wallpaper",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = { wallpaperReload++ },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Rounded.Refresh,
+                            contentDescription = "Reload wallpaper",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    WallpaperPreviewCard(
+                        label = "Home",
+                        bitmap = wallpaper?.home,
+                        profile = p,
+                        modifier = Modifier.weight(1f),
+                    )
+                    WallpaperPreviewCard(
+                        label = "Lock",
+                        bitmap = wallpaper?.lock,
+                        profile = p,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Gap(8)
+                HelperText(
+                    "How your home and lock screens look under the current filter. The overlay " +
+                        "covers both; lock-screen filtering can be switched off in Settings → Filter.",
                 )
             }
 
@@ -582,6 +718,11 @@ private fun FilterPreview(profile: com.toadlight.filter.core.model.Profile) {
     val tint = Color(rgb[0], rgb[1], rgb[2])
     val tintAlpha = (profile.intensityPercent / 100f).coerceIn(0f, 1f)
     val dimAlpha = (profile.dimPercent / 100f) * 0.95f
+    val paperAlpha = if (profile.paperFinish) {
+        (profile.paperIntensityPercent / 100f).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
     Column {
         Box(
@@ -616,6 +757,7 @@ private fun FilterPreview(profile: com.toadlight.filter.core.model.Profile) {
                     .matchParentSize()
                     .background(tint.copy(alpha = tintAlpha)),
             )
+            PaperOverlay(paperAlpha)
             Box(
                 Modifier
                     .matchParentSize()
@@ -682,6 +824,95 @@ private fun PermissionCard(
             androidx.compose.material3.OutlinedButton(onClick = onAction) {
                 Text(actionLabel)
             }
+        }
+    }
+}
+
+/**
+ * The paper finish rendered in previews: cream tone plus tiled grain, the
+ * same texture the real overlay draws.
+ */
+@Composable
+private fun PaperOverlay(paperAlpha: Float) {
+    val noise = remember { PaperGrain.tileImageBitmap() }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .drawWithCache {
+                val brush = ShaderBrush(
+                    ImageShader(noise, TileMode.Repeated, TileMode.Repeated),
+                )
+                onDrawBehind {
+                    if (paperAlpha > 0.004f) {
+                        drawRect(Color(0xFFF4E8D0), alpha = paperAlpha * 0.22f)
+                        drawRect(brush = brush, alpha = paperAlpha)
+                    }
+                }
+            },
+    )
+}
+
+/** One half-width card: the user's real wallpaper under the live filter. */
+@Composable
+private fun WallpaperPreviewCard(
+    label: String,
+    bitmap: ImageBitmap?,
+    profile: com.toadlight.filter.core.model.Profile,
+    modifier: Modifier = Modifier,
+) {
+    val rgb = ColorTemperature.rgb(profile.colorTempK)
+    val tint = Color(rgb[0], rgb[1], rgb[2])
+    val tintAlpha = (profile.intensityPercent / 100f).coerceIn(0f, 1f)
+    val dimAlpha = (profile.dimPercent / 100f) * 0.95f
+    val paperAlpha = if (profile.paperFinish) {
+        (profile.paperIntensityPercent / 100f).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    Box(
+        modifier
+            .height(168.dp)
+            .clip(MaterialTheme.shapes.large)
+            .background(Color(0xFF2A2A4A)),
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = "$label screen wallpaper preview",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF33334F), Color(0xFF55506B)),
+                        ),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "Live wallpaper\ncan't be previewed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFC6C1D8),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        Box(Modifier.fillMaxSize().background(tint.copy(alpha = tintAlpha)))
+        PaperOverlay(paperAlpha)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha)))
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(8.dp)
+                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = Color.White)
         }
     }
 }
