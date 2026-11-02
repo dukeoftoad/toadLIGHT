@@ -101,6 +101,11 @@ class FilterService : LifecycleService() {
             graph.engine.state.collect { applyState(it) }
         }
         lifecycleScope.launch {
+            // React to the accessibility service connecting/disconnecting —
+            // the global overlay takes over from (or hands back to) us.
+            graph.a11yConnected.collect { applyState(graph.engine.state.value) }
+        }
+        lifecycleScope.launch {
             while (isActive) {
                 graph.engine.recompute()
                 applyState(graph.engine.state.value)
@@ -173,9 +178,16 @@ class FilterService : LifecycleService() {
         val lockScreenOk = settingsNow.filterLockScreen || !keyguardLocked
         val gpuNow = settingsNow.useGpuRendering
 
+        // When global coverage is active, the accessibility service's
+        // TYPE_ACCESSIBILITY_OVERLAY window owns the filter (it reaches the
+        // notification shade too); our own overlay would only double-tint.
+        val globalOverlayActive =
+            graph.a11yConnected.value && settingsNow.filterNotificationShade
+
         // Keep the overlay attached while a fade-out is still running so the
         // quick transition plays out instead of snapping off.
-        val wantOverlay = (state.overlayOn || state.fading) && orientationOk && canOverlay && lockScreenOk
+        val wantOverlay = (state.overlayOn || state.fading) && orientationOk && canOverlay &&
+            lockScreenOk && !globalOverlayActive
         if (wantOverlay && (overlayView == null || lastGpuMode != gpuNow)) {
             removeOverlay()
             addOverlay(gpuNow)

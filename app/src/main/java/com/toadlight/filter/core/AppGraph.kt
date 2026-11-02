@@ -44,6 +44,13 @@ class AppGraph(context: Context) {
     val serviceRunning = MutableStateFlow(false)
 
     /**
+     * True while the toadLIGHT accessibility service is connected. When
+     * "filter notification shade" is also on, the global overlay is owned by
+     * that service instead of FilterService.
+     */
+    val a11yConnected = MutableStateFlow(false)
+
+    /**
      * True when the system refused to attach the overlay window (e.g. an OEM
      * blocked it). The UI surfaces a troubleshooting card while this is set.
      */

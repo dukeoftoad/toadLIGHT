@@ -87,6 +87,14 @@ data class AppSettings(
     /** Keep warming the screen while the lock screen / keyguard is showing. */
     val filterLockScreen: Boolean = true,
 
+    /**
+     * Global coverage: render the filter through the accessibility service's
+     * overlay window so it tints everything — status bar, navigation area,
+     * and even the expanded notification shade. Requires the toadLIGHT
+     * accessibility service to be enabled in system settings.
+     */
+    val filterNotificationShade: Boolean = false,
+
     /** Last remembered bubble position (top-left, raw px). [Int.MIN_VALUE] = unset. */
     val bubblePosX: Int = Int.MIN_VALUE,
     val bubblePosY: Int = Int.MIN_VALUE,

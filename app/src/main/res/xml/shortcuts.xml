@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="toggle_filter"
+        android:enabled="true"
+        android:icon="@drawable/ic_play"
+        android:shortcutShortLabel="@string/shortcut_toggle_filter"
+        android:shortcutLongLabel="@string/shortcut_toggle_filter">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.toadlight.filter"
+            android:targetClass="com.toadlight.filter.MainActivity">
+            <extra
+                android:name="quick_action"
+                android:value="toggle_filter" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="toggle_paper"
+        android:enabled="true"
+        android:icon="@drawable/ic_stat_toadlight"
+        android:shortcutShortLabel="@string/shortcut_toggle_paper"
+        android:shortcutLongLabel="@string/shortcut_toggle_paper">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.toadlight.filter"
+            android:targetClass="com.toadlight.filter.MainActivity">
+            <extra
+                android:name="quick_action"
+                android:value="toggle_paper" />
+        </intent>
+    </shortcut>
+</shortcuts>

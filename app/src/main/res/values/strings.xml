@@ -3,8 +3,12 @@
     <string name="app_name">toadLIGHT</string>
     <string name="tile_label">toadLIGHT filter</string>
     <string name="mode_tile_label">toadLIGHT mode</string>
-    <string name="accessibility_label">toadLIGHT app watcher</string>
-    <string name="accessibility_description">toadLIGHT uses this service only to detect which app is in the foreground so it can apply per-app filter behavior. It never reads or records screen content.</string>
+    <string name="accessibility_label">toadLIGHT watcher &amp; global filter</string>
+    <string name="accessibility_summary">Foreground-app detection and optional system-wide filtering</string>
+    <string name="accessibility_description">toadLIGHT uses this service for two things: detecting which app is in the foreground (package name only – never screen content) for per-app filter rules, and optionally drawing the warmth filter above everything, including the notification shade. No screen content is ever read, and nothing leaves the device.</string>
+
+    <string name="shortcut_toggle_filter">Toggle filter</string>
+    <string name="shortcut_toggle_paper">Paper on/off</string>
 
     <string name="notif_channel_name">Screen filter</string>
     <string name="notif_channel_desc">Shows the current state of the warmth filter and its quick controls.</string>

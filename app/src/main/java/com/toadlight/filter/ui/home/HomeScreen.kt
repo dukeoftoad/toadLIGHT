@@ -19,18 +19,21 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -134,6 +137,10 @@ fun HomeScreen() {
             onMasterChange = { on ->
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 vm.setMaster(on)
+            },
+            onPlayPause = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                vm.playPause()
             },
         )
 
@@ -340,38 +347,19 @@ fun HomeScreen() {
                     },
                 )
                 Gap()
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Paper finish", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Cream tone + fibrous grain for a paper-like screen",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Switch(
-                        checked = p.paperFinish,
-                        onCheckedChange = {
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            vm.nudgePreview()
-                            vm.setPaper(it)
-                        },
-                    )
-                }
-                if (p.paperFinish) {
-                    Gap()
-                    var paper by remember(p.id) { mutableStateOf(p.paperIntensityPercent.toFloat()) }
-                    LabeledSlider(
-                        label = "Paper texture",
-                        valueText = "${paper.toInt()}%",
-                        value = paper,
-                        onValueChange = {
-                            vm.nudgePreview()
-                            paper = it
-                            vm.setPaperIntensity(it.toInt())
-                        },
-                    )
-                }
+                PaperModeButton(
+                    enabled = p.paperFinish,
+                    intensityPercent = p.paperIntensityPercent,
+                    onToggle = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        vm.nudgePreview()
+                        vm.setPaper(!p.paperFinish)
+                    },
+                    onIntensityChange = {
+                        vm.nudgePreview()
+                        vm.setPaperIntensity(it)
+                    },
+                )
                 Gap()
                 Text(
                     "Lower Kelvin = less blue light. Add dimming for dark rooms without losing contrast.",
@@ -644,6 +632,7 @@ private fun StatusHeader(
     engineState: com.toadlight.filter.filter.EngineState,
     masterOn: Boolean,
     onMasterChange: (Boolean) -> Unit,
+    onPlayPause: () -> Unit,
 ) {
     val zone = ZoneId.systemDefault()
     val hour = Instant.now().atZone(zone).hour
@@ -708,6 +697,27 @@ private fun StatusHeader(
                 }
             }
             Switch(checked = masterOn, onCheckedChange = onMasterChange)
+            Spacer(Modifier.width(10.dp))
+
+            // Top-bar play/pause: smart toggle (pause / resume / on now).
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.16f))
+                    .clickable(onClick = onPlayPause),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = if (engineState.masterOn && !engineState.paused) {
+                        Icons.Rounded.Pause
+                    } else {
+                        Icons.Rounded.PlayArrow
+                    },
+                    contentDescription = "Play or pause the filter",
+                    tint = Color.White,
+                )
+            }
         }
     }
 }
@@ -824,6 +834,62 @@ private fun PermissionCard(
             androidx.compose.material3.OutlinedButton(onClick = onAction) {
                 Text(actionLabel)
             }
+        }
+    }
+}
+
+/**
+ * Dedicated paper-mode control for the preset filter section: one big button
+ * toggles the paper-like finish; while it is on, an intensity bar for the
+ * paper finish follows directly underneath.
+ */
+@Composable
+private fun PaperModeButton(
+    enabled: Boolean,
+    intensityPercent: Int,
+    onToggle: () -> Unit,
+    onIntensityChange: (Int) -> Unit,
+) {
+    Column {
+        Button(
+            onClick = onToggle,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = MaterialTheme.shapes.large,
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.MenuBook, contentDescription = null)
+            Spacer(Modifier.width(10.dp))
+            Column(
+                horizontalAlignment = androidx.compose.ui.Alignment.Start,
+                modifier = Modifier.weight(1f),
+            ) {
+                Text("Paper mode", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (enabled) "On · cream tone + fibrous grain" else "Off · tap for a paper-like finish",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Text(
+                if (enabled) "ON" else "OFF",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        if (enabled) {
+            Gap()
+            var intensity by remember(intensityPercent) {
+                mutableStateOf(intensityPercent.toFloat())
+            }
+            LabeledSlider(
+                label = "Paper finish intensity",
+                valueText = "${intensity.toInt()}%",
+                value = intensity,
+                onValueChange = { value ->
+                    intensity = value
+                    onIntensityChange(value.toInt())
+                },
+            )
         }
     }
 }

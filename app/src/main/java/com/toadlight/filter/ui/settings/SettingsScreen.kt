@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
 
     val settings = graph.settingsState
+    val a11yConnected = graph.a11yConnected
 
     fun update(transform: (AppSettings) -> AppSettings) {
         graph.scope.launch { graph.repo.updateSettings(transform) }
@@ -79,6 +80,7 @@ class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
     fun setFloatingMenu(on: Boolean) = update { it.copy(floatingMenuEnabled = on) }
     fun setGpuRendering(on: Boolean) = update { it.copy(useGpuRendering = on) }
     fun setFilterLockScreen(on: Boolean) = update { it.copy(filterLockScreen = on) }
+    fun setFilterNotificationShade(on: Boolean) = update { it.copy(filterNotificationShade = on) }
     fun setQuickTransition(ms: Int) = update { it.copy(quickTransitionMs = ms.coerceIn(0, 2000)) }
     fun setManualLocation(lat: Double?, lon: Double?) {
         graph.scope.launch { graph.repo.setLocation(lat, lon) }
@@ -93,6 +95,7 @@ fun SettingsScreen() {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(graph) }
 
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val a11yConnected by vm.a11yConnected.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showManualLocation by remember { mutableStateOf(false) }
@@ -312,6 +315,39 @@ fun SettingsScreen() {
                     },
                 )
                 SettingsRow(
+                    icon = Icons.Rounded.Widgets,
+                    title = "Filter notification shade (global)",
+                    subtitle = if (a11yConnected) {
+                        "Everything is tinted – status bar, navbar, even the expanded notification shade"
+                    } else {
+                        "Needs the toadLIGHT accessibility service – tap Enable in system settings"
+                    },
+                    onClick = if (!a11yConnected) {
+                        {
+                            runCatching {
+                                context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                            }
+                        }
+                    } else {
+                        null
+                    },
+                    trailing = {
+                        if (a11yConnected) {
+                            Switch(
+                                checked = settings.filterNotificationShade,
+                                onCheckedChange = { vm.setFilterNotificationShade(it) },
+                            )
+                        } else {
+                            Text(
+                                "Enable",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    },
+                )
+                SettingsRow(
                     title = "GPU rendering",
                     subtitle = "Hardware-accelerated overlay (default). " +
                         "Turn off if your device shows flicker or torn colors",
@@ -487,9 +523,10 @@ fun SettingsScreen() {
                         "Sun times come from the classic sunrise equation used by NOAA's solar calculators – " +
                         "computed on-device from your coordinates, offline, with no network access.\n\n" +
                         "The overlay is one system-wide window, so it covers every app, the home screen, " +
-                        "the status bar and (optionally) the lock screen. One Android limitation: when you " +
-                        "pull the notification shade all the way down, Android draws it above every " +
-                        "third-party app – no screen-filter app can tint it.\n\n" +
+                        "the status bar and (optionally) the lock screen. Turn on \"Filter notification " +
+                        "shade (global)\" in Settings → Filter and enable the toadLIGHT accessibility " +
+                        "service, and the filter is drawn above everything – including the fully " +
+                        "expanded notification shade, which normal app overlays can never reach.\n\n" +
                         "A small foreground service keeps the filter alive, wakes up for sunset/sunrise, " +
                         "and shows notification controls. The optional accessibility service only reports " +
                         "which app is in the foreground (package name only – never screen content) so " +
