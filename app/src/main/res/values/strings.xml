@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">toadLIGHT</string>
+    <string name="tile_label">toadLIGHT filter</string>
+    <string name="accessibility_label">toadLIGHT app watcher</string>
+    <string name="accessibility_description">toadLIGHT uses this service only to detect which app is in the foreground so it can apply per-app filter behavior. It never reads or records screen content.</string>
+
+    <string name="notif_channel_name">Screen filter</string>
+    <string name="notif_channel_desc">Shows the current state of the warmth filter and its quick controls.</string>
+    <string name="notif_action_pause">Pause 30m</string>
+    <string name="notif_action_resume">Resume</string>
+    <string name="notif_action_stop">Stop</string>
+</resources>

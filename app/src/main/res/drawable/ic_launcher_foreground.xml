@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- toadLIGHT launcher foreground: amber sun sinking below dusk horizon lines. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- setting sun -->
+    <path
+        android:fillColor="#FFC36B"
+        android:pathData="M34,40 a20,20 0 1,0 40,0 a20,20 0 1,0 -40,0 Z" />
+
+    <!-- horizon line 1 -->
+    <path
+        android:fillColor="#FFE3B8"
+        android:pathData="M26,64 h56 a2.5,2.5 0 0,1 2.5,2.5 v0 a2.5,2.5 0 0,1 -2.5,2.5 h-56 a2.5,2.5 0 0,1 -2.5,-2.5 v0 a2.5,2.5 0 0,1 2.5,-2.5 Z" />
+
+    <!-- horizon line 2 -->
+    <path
+        android:fillColor="#8E86C9"
+        android:pathData="M34,74 h40 a2,2 0 0,1 2,2 v0 a2,2 0 0,1 -2,2 h-40 a2,2 0 0,1 -2,-2 v0 a2,2 0 0,1 2,-2 Z" />
+
+    <!-- stars -->
+    <path
+        android:fillColor="#FFE3B8"
+        android:pathData="M28,25 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z" />
+    <path
+        android:fillColor="#FFE3B8"
+        android:pathData="M80,32 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0 Z" />
+    <path
+        android:fillColor="#8E86C9"
+        android:pathData="M66,20 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0 Z" />
+</vector>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick-settings tile icon: sun with glow ring above horizon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,6.2 a3.8,3.8 0 1,0 7.6,0 a3.8,3.8 0 1,0 -7.6,0 Z" />
+
+    <path
+        android:fillColor="#66FFFFFF"
+        android:pathData="M12,2.4 a7.6,7.6 0 1,0 15.2,0 a7.6,7.6 0 1,0 -15.2,0 Z"
+        android:fillAlpha="0.0" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M3,17.4 h18 a1,1 0 0,1 1,1 v0 a1,1 0 0,1 -1,1 h-18 a1,1 0 0,1 -1,-1 v0 a1,1 0 0,1 1,-1 Z" />
+</vector>
