@@ -43,6 +43,12 @@ class AppGraph(context: Context) {
     /** Set by FilterService so external entry points (tile) know if it is alive. */
     val serviceRunning = MutableStateFlow(false)
 
+    /**
+     * True when the system refused to attach the overlay window (e.g. an OEM
+     * blocked it). The UI surfaces a troubleshooting card while this is set.
+     */
+    val overlayAttachFailed = MutableStateFlow(false)
+
     init {
         scope.launch { repo.seedIfEmpty() }
         engine.observe(scope)

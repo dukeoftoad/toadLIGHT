@@ -34,10 +34,16 @@ class FilterTileService : TileService() {
         }
 
         if (masterOn) {
+            // Turning off: persist immediately, then stop a running service.
+            // This also works when the service was already killed by the system.
+            runBlocking { graph.repo.setMasterEnabled(false) }
             if (graph.serviceRunning.value) {
                 FilterService.stop(this)
             }
         } else {
+            // Turning on: persist FIRST (the service used to die instantly
+            // when settings still said "off"), then make sure it is running.
+            runBlocking { graph.repo.setMasterEnabled(true) }
             FilterService.start(this)
         }
         updateTile()

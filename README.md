@@ -13,16 +13,17 @@ After sunset, toadLIGHT warms your screen with a translucent amber veil and can 
 - **Full control** – color temperature (1000K–6500K), warmth intensity and extra screen dimming, all with a live preview. Changes apply to the real overlay as you drag.
 - **Profiles** – Evening, Bed reading, and anything you create. Each profile keeps its own filter values *and* its own schedule.
 - **Per-app behavior** – turn the filter off inside chosen apps (games, galleries) or give an app its own settings. Powered by a privacy-first accessibility service that reads only the foreground package name – never screen content.
+- **Material You** – dynamic colors from your wallpaper, dark/AMOLED/light themes.
 - **Quick controls everywhere** – quick-settings tile, notification actions (pause / resume / stop), quick pause chips (1 min / 30 min / 1 hour).
 - **Gentle fades** – configurable transition duration (0–120 min) so sunset and sunrise fade in and out smoothly; interrupted fades continue seamlessly.
 - **Starts on boot**, survives app updates, reacts to clock/time-zone changes.
-- **Material You** – dynamic colors on Android 12+, dark/AMOLED/light themes.
+- **On now** – need the warmth before sunset? Turn the filter on immediately for two hours; the schedule takes over automatically afterwards. Dragging any slider during the day starts a short live preview on the real screen.
 - **No paywall, no ads, no network** – everything is free and all data stays on the device.
 
 ## Building
 
 ### Android Studio
-Open the project folder and press **Run**. Studio will install the right SDK automatically (compileSdk 35, minSdk 26).
+Open the project folder and press **Run**. Studio will install the right SDK automatically (compileSdk 36, minSdk 34, Android 14+).
 
 ### Command line
 ```bash
@@ -30,19 +31,33 @@ Open the project folder and press **Run**. Studio will install the right SDK aut
 ./gradlew testReleaseUnitTest    # runs the JVM unit tests
 ```
 
-The repository ships with a demo signing keystore (`keystore/toadlight-release.jks`, referenced by `keystore.properties`) so the release build works out of the box. **For a real release, generate your own keystore and update `keystore.properties`** – never ship the demo one to a store.
+The repository does not ship signing secrets (they are git-ignored). For a local release build, create `keystore.properties` at the repo root and a keystore:
+
+```bash
+keytool -genkeypair -keystore keystore/toadlight-release.jks -alias toadlight \
+  -keyalg RSA -keysize 2048 -validity 10950
+```
+
+```properties
+storeFile=keystore/toadlight-release.jks
+storePassword=<your store password>
+keyAlias=toadlight
+keyPassword=<your key password>
+```
+
+Without it, `assembleDebug` still works out of the box. CI signs releases from the `TOADLIGHT_KEYSTORE_BASE64` / `TOADLIGHT_STORE_PASSWORD` / `TOADLIGHT_KEY_PASSWORD` repo secrets (tag a `v*` release to trigger it).
 
 Toolchain used for development:
 
 | Component | Version |
 | --- | --- |
-| AGP | 8.6.1 |
-| Gradle | 8.9 |
+| AGP | 8.10.1 |
+| Gradle | 8.11.1 |
 | Kotlin | 2.0.20 |
 | Compose BOM | 2024.09.03 (Material 3 1.3.0) |
-| compileSdk / targetSdk | 35 |
-| minSdk | 26 (Android 8.0) |
-| JDK | 17 |
+| compileSdk / targetSdk | 36 (Android 16) |
+| minSdk | 34 (Android 14) |
+| JDK | 21 |
 
 ## Architecture
 

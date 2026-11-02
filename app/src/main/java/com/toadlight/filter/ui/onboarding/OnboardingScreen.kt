@@ -3,7 +3,6 @@ package com.toadlight.filter.ui.onboarding
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,8 +15,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -72,7 +73,7 @@ fun OnboardingScreen() {
     }
     var notificationsGranted by remember {
         mutableStateOf(
-            Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+            ContextCompat.checkSelfPermission(
                 context, Manifest.permission.POST_NOTIFICATIONS,
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
         )
@@ -129,13 +130,21 @@ fun OnboardingScreen() {
     fun finishOnboarding() {
         scope.launch {
             graph.repo.completeOnboarding()
-            FilterService.start(context)
+            // Glow for two minutes right away so the user immediately sees
+            // the filter working – no waiting for sunset to trust the app.
+            if (Settings.canDrawOverlays(context)) {
+                graph.repo.setMasterEnabled(true)
+                graph.repo.startPreview(2 * 60_000L)
+                FilterService.start(context)
+            }
         }
     }
 
     Column(
         Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -171,9 +180,7 @@ fun OnboardingScreen() {
                     locationGranted = locationGranted,
                     onRequestOverlay = ::requestOverlayPermission,
                     onRequestNotifications = {
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }
+                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     },
                     onRequestLocation = {
                         locationLauncher.launch(

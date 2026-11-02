@@ -3,7 +3,6 @@ package com.toadlight.filter.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.compose.foundation.clickable
@@ -127,11 +126,11 @@ fun SettingsScreen() {
                         )
                     },
                 )
-                if (Build.VERSION.SDK_INT >= 31) {
+                run {
                     SettingsRow(
                         icon = Icons.Rounded.DarkMode,
                         title = "Dynamic colors",
-                        subtitle = "Follow your wallpaper palette (Android 12+)",
+                        subtitle = "Follow your wallpaper palette",
                         trailing = {
                             Switch(
                                 checked = settings.dynamicColors,

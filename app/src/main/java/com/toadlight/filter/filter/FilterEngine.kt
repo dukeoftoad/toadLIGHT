@@ -33,6 +33,8 @@ data class EngineState(
     val tintAlpha: Float = 0f,
     val dimAlpha: Float = 0f,
     val scheduleOpen: Boolean = false,
+    val previewing: Boolean = false,
+    val previewEndsAt: Long = 0L,
     val nextChangeAt: Long? = null,
     val sunsetAt: Long? = null,
     val sunriseAt: Long? = null,
@@ -66,6 +68,9 @@ class FilterEngine(private val graph: AppGraph) {
     private var transitionStartMs = 0L
     private var blendAtFlip = 0f
     private var durationMs = 0L
+
+    /** Last blend the engine emitted; used so interrupted fades resume smoothly. */
+    private var lastBlend = 0f
 
     fun observe(scope: CoroutineScope) {
         scope.launch {
@@ -127,19 +132,24 @@ class FilterEngine(private val graph: AppGraph) {
         }
 
         val window = ScheduleEvaluator.evaluate(profile.schedule, settings, now, zone, sunProvider)
-        val newTarget = settings.masterEnabled && !paused && !suppress && window.open
+        val previewing = settings.previewUntil > now
+        val effectiveOpen = window.open || previewing
+        val newTarget = settings.masterEnabled && !paused && !suppress && effectiveOpen
 
         durationMs = settings.transitionMinutes * 60_000L
         if (newTarget != targetOn) {
-            blendAtFlip = blendValue(targetOn ?: false, now, instant = false)
+            blendAtFlip = lastBlend
             transitionStartMs = now
             targetOn = newTarget
         }
 
-        val instant = paused || !settings.masterEnabled || suppress
+        // A preview snaps on (and back off) instead of using the long sunset fade,
+        // so "On now" always gives immediate, obvious feedback.
+        val instant = paused || !settings.masterEnabled || suppress || previewing
         val blend = blendValue(newTarget, now, instant)
+        lastBlend = blend
 
-        val params: EngineParams = if (override?.mode == OverrideMode.CUSTOM && window.open && !paused) {
+        val params: EngineParams = if (override?.mode == OverrideMode.CUSTOM && effectiveOpen && !paused) {
             EngineParams(override.colorTempK, override.intensityPercent, override.dimPercent)
         } else {
             EngineParams(profile.colorTempK, profile.intensityPercent, profile.dimPercent)
@@ -150,6 +160,7 @@ class FilterEngine(private val graph: AppGraph) {
         val nextChange = listOfNotNull(
             window.nextChangeAt,
             if (paused && settings.pausedUntil > now) settings.pausedUntil else null,
+            if (previewing) settings.previewUntil else null,
         ).minOrNull()
 
         _state.value = EngineState(
@@ -162,6 +173,8 @@ class FilterEngine(private val graph: AppGraph) {
             tintAlpha = (params.intensityPercent / 100f) * blend,
             dimAlpha = (params.dimPercent / 100f) * 0.95f * blend,
             scheduleOpen = window.open,
+            previewing = previewing,
+            previewEndsAt = if (previewing) settings.previewUntil else 0L,
             nextChangeAt = nextChange,
             sunsetAt = window.sunsetAt,
             sunriseAt = window.sunriseAt,

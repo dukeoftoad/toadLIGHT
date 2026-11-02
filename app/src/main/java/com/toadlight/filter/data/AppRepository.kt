@@ -81,6 +81,14 @@ class AppRepository(private val context: Context) {
 
     suspend fun setMasterEnabled(on: Boolean) = updateSettings { it.copy(masterEnabled = on) }
 
+    /** Forces the filter on for [durationMs] from now, bypassing the schedule. */
+    suspend fun startPreview(durationMs: Long) = updateSettings {
+        it.copy(previewUntil = System.currentTimeMillis() + durationMs)
+    }
+
+    /** Drops any running preview; the schedule takes over immediately. */
+    suspend fun endPreview() = updateSettings { it.copy(previewUntil = 0L) }
+
     suspend fun pauseFor(durationMs: Long) = updateSettings {
         it.copy(pausedUntil = System.currentTimeMillis() + durationMs)
     }

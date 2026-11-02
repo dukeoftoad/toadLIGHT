@@ -3,7 +3,6 @@ package com.toadlight.filter.ui.home
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -76,13 +75,15 @@ fun HomeScreen() {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val profile by vm.activeProfile.collectAsStateWithLifecycle()
     val locationStatus by vm.locationStatus.collectAsStateWithLifecycle()
+    val serviceRunning by vm.serviceRunning.collectAsStateWithLifecycle()
+    val overlayAttachFailed by vm.overlayAttachFailed.collectAsStateWithLifecycle()
 
     var showStartPicker by remember { mutableStateOf(false) }
     var showEndPicker by remember { mutableStateOf(false) }
 
     var notifGranted by remember {
         mutableStateOf(
-            Build.VERSION.SDK_INT < 33 || androidx.core.content.ContextCompat.checkSelfPermission(
+            androidx.core.content.ContextCompat.checkSelfPermission(
                 context, Manifest.permission.POST_NOTIFICATIONS,
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED,
         )
@@ -128,7 +129,32 @@ fun HomeScreen() {
             )
         }
 
-        if (Build.VERSION.SDK_INT >= 33 && !notifGranted && engineState.masterOn) {
+        if (overlayAttachFailed && engineState.masterOn && engineState.overlayOn) {
+            Gap(12)
+            PermissionCard(
+                title = "Filter is blocked",
+                body = "The system refused the screen overlay. Check that toadLIGHT is allowed " +
+                    "to \"display over other apps\", then retry.",
+                actionLabel = "Retry",
+                onAction = {
+                    vm.restartService()
+                },
+            )
+        }
+
+        if (engineState.masterOn && !serviceRunning && !engineState.paused &&
+            (engineState.overlayOn || engineState.previewing)
+        ) {
+            Gap(12)
+            PermissionCard(
+                title = "Filter was stopped by the system",
+                body = "Battery optimization or a task killer may have stopped it. Restart now.",
+                actionLabel = "Restart",
+                onAction = { vm.restartService() },
+            )
+        }
+
+        if (!notifGranted && engineState.masterOn) {
             Gap(12)
             PermissionCard(
                 title = "Enable notification controls",
@@ -155,6 +181,45 @@ fun HomeScreen() {
             }
         }
 
+        // "On now" – bypass the schedule so the filter is useful (and
+        // demonstrably working) at any hour, like Twilight's pause/toggle.
+        if (engineState.masterOn && !engineState.scheduleOpen && !engineState.paused) {
+            Gap(12)
+            SectionCard(title = "Not scheduled right now") {
+                if (engineState.previewing) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "On now · until ${TimeText.format(engineState.previewEndsAt) ?: "soon"}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Preview mode – your schedule takes over automatically after this.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        AssistChip(
+                            onClick = { vm.endPreviewNow() },
+                            label = { Text("Back to schedule") },
+                        )
+                    }
+                } else {
+                    Text(
+                        "Your schedule keeps the filter off until sunset. Turn it on now " +
+                            "for two hours – it will hand back to the schedule automatically.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Gap(8)
+                    androidx.compose.material3.Button(onClick = { vm.turnOnNow() }) {
+                        Text("Turn on now · 2 h")
+                    }
+                }
+            }
+        }
+
         Gap(16)
 
         profile?.let { p ->
@@ -173,6 +238,7 @@ fun HomeScreen() {
                     valueText = "${temp.toInt()}K · ${ColorTemperature.describe(temp.toInt())}",
                     value = temp,
                     onValueChange = {
+                        vm.nudgePreview()
                         temp = it
                         vm.setTemp(it.toInt())
                     },
@@ -188,6 +254,7 @@ fun HomeScreen() {
                     valueText = "${intensity.toInt()}%",
                     value = intensity,
                     onValueChange = {
+                        vm.nudgePreview()
                         intensity = it
                         vm.setIntensity(it.toInt())
                     },
@@ -198,6 +265,7 @@ fun HomeScreen() {
                     valueText = "${dim.toInt()}%",
                     value = dim,
                     onValueChange = {
+                        vm.nudgePreview()
                         dim = it
                         vm.setDim(it.toInt())
                     },
@@ -392,6 +460,8 @@ private fun StatusHeader(
     val statusText = when {
         !engineState.masterOn -> "Off"
         engineState.paused -> "Paused · resumes ${TimeText.format(engineState.pauseEndsAt) ?: "soon"}"
+        engineState.previewing && engineState.overlayOn ->
+            "On now · until ${TimeText.format(engineState.previewEndsAt) ?: "soon"}"
         engineState.overlayOn && engineState.scheduleOpen ->
             if (engineState.fading) {
                 "Fading in · ${engineState.profileName}"

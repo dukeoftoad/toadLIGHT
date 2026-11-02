@@ -21,6 +21,8 @@ class HomeViewModel(
     val engineState = graph.engine.state
     val settings = graph.settingsState
     val activeProfile = graph.activeProfileState
+    val serviceRunning = graph.serviceRunning
+    val overlayAttachFailed = graph.overlayAttachFailed
 
     /** Location fetch feedback for the UI. */
     val locationStatus = MutableStateFlow<String?>(null)
@@ -57,10 +59,49 @@ class HomeViewModel(
             graph.repo.setMasterEnabled(on)
             if (on) {
                 FilterService.start(appContext)
-            } else if (graph.serviceRunning.value) {
-                FilterService.stop(appContext)
+            }
+            // Turning off: the running service observes the change and stops
+            // itself after a short grace period. No racing writes needed.
+        }
+    }
+
+    /**
+     * Forces the filter on right now for [durationMs], bypassing the
+     * schedule. Visible immediately – no waiting for sunset.
+     */
+    fun turnOnNow(durationMs: Long = 2 * 60 * 60_000L) {
+        viewModelScope.launch {
+            graph.repo.setMasterEnabled(true)
+            graph.repo.startPreview(durationMs)
+            if (!graph.serviceRunning.value) {
+                FilterService.start(appContext)
             }
         }
+    }
+
+    /** Drops a running "On now" preview; the schedule takes over. */
+    fun endPreviewNow() {
+        viewModelScope.launch { graph.repo.endPreview() }
+    }
+
+    /** Restarts the service if the system killed it while it should run. */
+    fun restartService() {
+        viewModelScope.launch {
+            if (graph.settingsState.value.masterEnabled) {
+                FilterService.start(appContext)
+            }
+        }
+    }
+
+    /**
+     * Called on every slider drag: if the filter is currently invisible
+     * (daytime, closed schedule), start a short preview so the user sees the
+     * effect of their changes live on the real screen.
+     */
+    fun nudgePreview() {
+        val s = graph.engine.state.value
+        if (!s.masterOn || s.paused || s.overlayOn || s.previewing) return
+        viewModelScope.launch { graph.repo.startPreview(2 * 60_000L) }
     }
 
     fun pause(durationMs: Long) {

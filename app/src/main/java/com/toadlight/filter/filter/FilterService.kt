@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
-import android.os.Build
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
@@ -44,6 +43,14 @@ class FilterService : LifecycleService() {
     private var overlayView: FilterOverlayView? = null
     private var lastNotificationKey: String = ""
     private var destroyed = false
+    private var gracefulStopScheduled = false
+
+    /**
+     * App-level scope for settings writes. Writes launched from the service's
+     * own lifecycleScope used to be cancelled mid-flight when the service
+     * stopped itself, leaving settings saying "on" while nothing ran.
+     */
+    private val appScope get() = graph.scope
 
     override fun onCreate() {
         super.onCreate()
@@ -71,23 +78,29 @@ class FilterService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         when (intent?.action) {
             ACTION_STOP -> {
-                lifecycleScope.launch { graph.repo.setMasterEnabled(false) }
+                appScope.launch {
+                    graph.repo.setMasterEnabled(false)
+                    graph.repo.endPreview()
+                }
                 stopSelf()
             }
 
             ACTION_TOGGLE -> {
-                val masterOn = graph.engine.state.value.masterOn
-                if (masterOn) {
-                    lifecycleScope.launch { graph.repo.setMasterEnabled(false) }
-                    stopSelf()
-                } else {
-                    lifecycleScope.launch { graph.repo.setMasterEnabled(true) }
+                val currentlyOn = graph.settingsState.value.masterEnabled
+                appScope.launch {
+                    if (currentlyOn) {
+                        graph.repo.setMasterEnabled(false)
+                        graph.repo.endPreview()
+                    } else {
+                        graph.repo.setMasterEnabled(true)
+                    }
                 }
+                // State observation (or the graceful stop below) does the rest.
             }
 
-            ACTION_PAUSE_30M -> lifecycleScope.launch { graph.repo.pauseFor(30 * 60_000L) }
-            ACTION_PAUSE_1H -> lifecycleScope.launch { graph.repo.pauseFor(60 * 60_000L) }
-            ACTION_RESUME -> lifecycleScope.launch { graph.repo.resume() }
+            ACTION_PAUSE_30M -> appScope.launch { graph.repo.pauseFor(30 * 60_000L) }
+            ACTION_PAUSE_1H -> appScope.launch { graph.repo.pauseFor(60 * 60_000L) }
+            ACTION_RESUME -> appScope.launch { graph.repo.resume() }
             ACTION_REFRESH -> graph.engine.recompute()
         }
         return START_STICKY
@@ -105,6 +118,7 @@ class FilterService : LifecycleService() {
         destroyed = true
         removeOverlay()
         graph.serviceRunning.value = false
+        graph.overlayAttachFailed.value = false
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -113,7 +127,10 @@ class FilterService : LifecycleService() {
         if (destroyed) return
 
         if (!state.masterOn) {
-            stopSelf()
+            removeOverlay()
+            graph.overlayAttachFailed.value = false
+            scheduleGracefulStop()
+            maybeUpdateNotification(state)
             return
         }
 
@@ -131,6 +148,25 @@ class FilterService : LifecycleService() {
         overlayView?.setFilter(state.tintArgb, state.tintAlpha, state.dimAlpha)
 
         maybeUpdateNotification(state)
+    }
+
+    /**
+     * When the engine reports "off", give the toggle a short grace period
+     * before really stopping. This covers two races: (a) the user flips the
+     * switch back on within a second, (b) a stale StateFlow snapshot still
+     * said "off" while the freshly written "on" lands a moment later.
+     */
+    private fun scheduleGracefulStop() {
+        if (gracefulStopScheduled) return
+        gracefulStopScheduled = true
+        lifecycleScope.launch {
+            delay(1500)
+            gracefulStopScheduled = false
+            if (destroyed) return@launch
+            if (!graph.settingsState.value.masterEnabled) {
+                stopSelf()
+            }
+        }
     }
 
     private fun addOverlay() {
@@ -171,6 +207,11 @@ class FilterService : LifecycleService() {
         runCatching {
             windowManager.addView(view, params)
             overlayView = view
+            graph.overlayAttachFailed.value = false
+        }.onFailure {
+            // Some OEMs reject the window (battery savers, "display pop-up"
+            // toggles per app). Surface it instead of failing silently.
+            graph.overlayAttachFailed.value = true
         }
     }
 
@@ -182,16 +223,8 @@ class FilterService : LifecycleService() {
     }
 
     private fun realScreenSize(): android.graphics.Point {
-        return if (Build.VERSION.SDK_INT >= 30) {
-            val bounds = windowManager.maximumWindowMetrics.bounds
-            android.graphics.Point(bounds.width(), bounds.height())
-        } else {
-            @Suppress("DEPRECATION")
-            val metrics = android.util.DisplayMetrics()
-            @Suppress("DEPRECATION")
-            windowManager.defaultDisplay.getRealMetrics(metrics)
-            android.graphics.Point(metrics.widthPixels, metrics.heightPixels)
-        }
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        return android.graphics.Point(bounds.width(), bounds.height())
     }
 
     // ------------------------------------------------------------------ //
@@ -211,11 +244,7 @@ class FilterService : LifecycleService() {
     }
 
     private fun startForegroundTyped(notification: Notification) {
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIF_ID, notification)
-        }
+        startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     }
 
     private fun maybeUpdateNotification(state: EngineState) {
@@ -229,8 +258,10 @@ class FilterService : LifecycleService() {
             append(state.paused).append('|')
             append(state.overlayOn).append('|')
             append(state.scheduleOpen).append('|')
+            append(state.previewing).append('|')
             append(state.profileName).append('|')
             append(fmt(state.pauseEndsAt)).append('|')
+            append(fmt(state.previewEndsAt)).append('|')
             append(fmt(state.sunriseAt)).append('|')
             append(fmt(state.sunsetAt)).append('|')
             append(state.colorTempK).append('|')
@@ -257,6 +288,11 @@ class FilterService : LifecycleService() {
             state.paused -> {
                 title = getString(R.string.app_name) + " · paused"
                 text = "Resumes " + (fmt(state.pauseEndsAt) ?: "soon")
+            }
+
+            state.overlayOn && state.previewing -> {
+                title = "Warm filter on · ${state.profileName}"
+                text = "Preview · schedule takes over at " + (fmt(state.previewEndsAt) ?: "soon")
             }
 
             state.overlayOn && state.scheduleOpen -> {
@@ -342,11 +378,24 @@ class FilterService : LifecycleService() {
             )
         }
 
-        /** Only meaningful while the service is running. */
+        /**
+         * Turns the filter off. Persists the setting first (on the app-level
+         * scope so it survives the service), then asks a running service to
+         * stop itself.
+         */
         fun stop(context: Context) {
-            context.startService(
-                Intent(context, FilterService::class.java).setAction(ACTION_STOP),
-            )
+            val app = context.applicationContext as ToadlightApp
+            app.graph.scope.launch {
+                app.graph.repo.setMasterEnabled(false)
+                app.graph.repo.endPreview()
+            }
+            if (app.graph.serviceRunning.value) {
+                runCatching {
+                    context.startService(
+                        Intent(context, FilterService::class.java).setAction(ACTION_STOP),
+                    )
+                }
+            }
         }
 
         fun refresh(context: Context) {

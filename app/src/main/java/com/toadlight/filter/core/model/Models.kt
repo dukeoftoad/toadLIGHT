@@ -52,6 +52,13 @@ enum class ThemeMode { FOLLOW_SYSTEM, DARK, AMOLED, LIGHT }
 data class AppSettings(
     val masterEnabled: Boolean = true,
     val pausedUntil: Long = 0L,
+
+    /**
+     * Epoch millis until which the filter is forced on, bypassing the
+     * schedule ("On now" / live slider preview). After it expires the
+     * regular schedule takes over again.
+     */
+    val previewUntil: Long = 0L,
     val onboardingDone: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.FOLLOW_SYSTEM,
     val dynamicColors: Boolean = false,
