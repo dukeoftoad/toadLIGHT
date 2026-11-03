@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.os.PowerManager
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
@@ -22,6 +23,7 @@ import androidx.lifecycle.lifecycleScope
 import com.toadlight.filter.ToadlightApp
 import com.toadlight.filter.MainActivity
 import com.toadlight.filter.R
+import com.toadlight.filter.core.ScreenOffPolicy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -57,14 +59,44 @@ class FilterService : LifecycleService() {
     private var keyguardLocked = false
 
     /**
+     * True while the screen is interactive. While it is dark the overlay is
+     * not composited at all, so the ticker drops to one lazy wake every
+     * [ScreenOffPolicy.SCREEN_OFF_TICK_MS] instead of the 1 s / 120 ms
+     * rhythm (see [ScreenOffPolicy] — fades are wall-time derived, so one
+     * recompute on wake lands them exactly). Seeded from PowerManager in
+     * [onCreate] because the service can be started while the screen is
+     * already off, and kept current by [screenReceiver].
+     *
+     * The overlay window is deliberately NOT removed on screen-off: nothing
+     * is composited then anyway, and re-adding it on wake risks a visible
+     * flash.
+     */
+    @Volatile
+    private var screenOn = true
+
+    /**
      * App-level scope for settings writes. Writes launched from the service's
      * own lifecycleScope used to be cancelled mid-flight when the service
      * stopped itself, leaving settings saying "on" while nothing ran.
      */
     private val appScope get() = graph.scope
 
-    private val keyguardReceiver = object : BroadcastReceiver() {
+    /**
+     * One receiver for both screen and keyguard events (they always travel
+     * together and share the same reaction: re-evaluate and re-apply).
+     * SCREEN_ON additionally recomputes immediately so a fade that ran out
+     * its clock while the screen was dark resumes at the right position.
+     */
+    private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> screenOn = false
+                Intent.ACTION_SCREEN_ON -> {
+                    screenOn = true
+                    graph.engine.recompute()
+                    applyState(graph.engine.state.value)
+                }
+            }
             val locked = getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
             if (locked != keyguardLocked) {
                 keyguardLocked = locked
@@ -83,12 +115,16 @@ class FilterService : LifecycleService() {
         createNotificationChannel()
         startForegroundTyped(buildNotification(graph.engine.state.value))
 
-        // SYSTEM_ALERT_WINDOW overlays normally render above the keyguard, so
-        // home and lock screen wallpapers get filtered too. When the user
-        // turns that off, watch lock/unlock to hide and restore the overlay.
+        // The service may be (re)started while the screen is already off —
+        // seed the interactive flag instead of assuming the screen is on.
+        screenOn = getSystemService(PowerManager::class.java)?.isInteractive ?: true
+
+        // Watch screen and lock/unlock to time the ticker correctly and to
+        // hide/restore the overlay when the user turned lock-screen
+        // filtering off.
         ContextCompat.registerReceiver(
             this,
-            keyguardReceiver,
+            screenReceiver,
             IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
@@ -109,7 +145,8 @@ class FilterService : LifecycleService() {
             while (isActive) {
                 graph.engine.recompute()
                 applyState(graph.engine.state.value)
-                delay(graph.engine.nextTickDelayMs())
+                val awakeDelayMs = graph.engine.nextTickDelayMs()
+                delay(ScreenOffPolicy.effectiveTickDelayMs(screenOn, awakeDelayMs))
             }
         }
     }
@@ -158,7 +195,7 @@ class FilterService : LifecycleService() {
 
     override fun onDestroy() {
         destroyed = true
-        runCatching { unregisterReceiver(keyguardReceiver) }
+        runCatching { unregisterReceiver(screenReceiver) }
         removeOverlay()
         detachFloatingMenu()
         graph.serviceRunning.value = false
