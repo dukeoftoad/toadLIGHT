@@ -3,6 +3,7 @@ name: toadLIGHT CI
 on:
   push:
     branches: ["**"]
+    tags: ["v*"]
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
