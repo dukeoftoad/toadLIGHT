@@ -103,7 +103,7 @@ com.toadlight.filter
 
 ## Testing
 
-`app/src/test/` contains JVM unit tests for the solar calculator (validated against timeanddate.com values for New York and Delhi), the color-temperature mapping and the schedule evaluator (window logic, midnight wrap, offsets, polar edge cases).
+`app/src/test/` contains JVM unit tests for the solar calculator (validated against timeanddate.com values for New York and Delhi), the color-temperature mapping, the schedule evaluator (window logic, midnight wrap, offsets, polar edge cases) and the quick-settings tile decision logic.
 
 ## Roadmap ideas
 

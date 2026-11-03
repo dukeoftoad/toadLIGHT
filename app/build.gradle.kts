@@ -20,8 +20,8 @@ android {
         applicationId = "com.toadlight.filter"
         minSdk = 34
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 12
+        versionName = "1.4.7"
     }
 
     signingConfigs {
