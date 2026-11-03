@@ -67,6 +67,13 @@ class MainActivity : ComponentActivity() {
      * toggle the filter or toggle paper mode without opening the app UI.
      * When launched standalone from the launcher, finish right after the
      * action so the user stays where they are.
+     *
+     * The extra is consumed (removed) after handling: the system can
+     * redeliver the original intent (launcher re-tap with CLEAR_TOP,
+     * task reparenting), and a stale `quick_action` would re-toggle the
+     * filter or paper mode a second time. Recreation is already guarded
+     * by the `savedInstanceState == null` check in [onCreate]; this makes
+     * the intent itself safe to reuse. (Matches the v1.4.6 fix.)
      */
     private fun handleQuickAction(intent: Intent?) {
         val action = intent?.getStringExtra(EXTRA_QUICK_ACTION) ?: return
@@ -108,6 +115,8 @@ class MainActivity : ComponentActivity() {
                 finishIfStandalone()
             }
         }
+        // Consume the extra so a redelivered intent can't re-trigger.
+        intent?.removeExtra(EXTRA_QUICK_ACTION)
     }
 
     private fun finishIfStandalone() {
