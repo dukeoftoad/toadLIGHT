@@ -681,7 +681,13 @@ private fun StatusHeader(
                     color = Color.White,
                 )
                 Spacer(Modifier.height(6.dp))
-                if (engineState.perAppSuppressing) {
+                if (engineState.paperAppActive) {
+                    Text(
+                        "Paper Mode · reading finish on for this app",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFFFD9A0),
+                    )
+                } else if (engineState.perAppSuppressing) {
                     Text(
                         "Paused for this app",
                         style = MaterialTheme.typography.bodySmall,

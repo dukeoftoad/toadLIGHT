@@ -59,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.toadlight.filter.appGraph
 import com.toadlight.filter.core.AppGraph
+import com.toadlight.filter.core.PaperPresets
 import com.toadlight.filter.core.color.ColorTemperature
 import com.toadlight.filter.core.model.AppOverride
 import com.toadlight.filter.core.model.OverrideMode
@@ -94,6 +95,9 @@ class AppsViewModel(private val appContext: Context, private val graph: AppGraph
     val accessibilityEnabled = MutableStateFlow(false)
 
     val loading = MutableStateFlow(false)
+
+    /** One-line feedback after a Paper Mode preset action. */
+    val presetMessage = MutableStateFlow<String?>(null)
 
     init {
         loadApps()
@@ -139,6 +143,37 @@ class AppsViewModel(private val appContext: Context, private val graph: AppGraph
         graph.scope.launch { graph.repo.setAppOverride(override) }
     }
 
+    /** One-tap: give every installed PDF/reading app that has no custom rule a Paper Mode override. */
+    fun applyPaperPreset() {
+        val installed = apps.value.map { it.packageName }.toSet()
+        val targets = PaperPresets.applicable(installed, settings.value.appOverrides)
+        if (targets.isEmpty()) {
+            presetMessage.value = "No new PDF/reading apps found to set up"
+            return
+        }
+        graph.scope.launch {
+            targets.forEach { pkg ->
+                graph.repo.setAppOverride(AppOverride(packageName = pkg, mode = OverrideMode.PAPER))
+            }
+        }
+        presetMessage.value = "Paper Mode set for ${targets.size} reading app${if (targets.size == 1) "" else "s"}"
+    }
+
+    /** Clears Paper Mode from every app that currently has it. */
+    fun removePaperOverrides() {
+        val targets = PaperPresets.paperPackages(settings.value.appOverrides)
+        if (targets.isEmpty()) {
+            presetMessage.value = "No apps are on Paper Mode"
+            return
+        }
+        graph.scope.launch {
+            targets.forEach { pkg ->
+                graph.repo.setAppOverride(AppOverride(packageName = pkg, mode = OverrideMode.DEFAULT))
+            }
+        }
+        presetMessage.value = "Paper Mode removed from ${targets.size} app${if (targets.size == 1) "" else "s"}"
+    }
+
     fun refreshAccessibility() {
         accessibilityEnabled.value = isAccessibilityEnabled(appContext)
     }
@@ -178,6 +213,7 @@ fun AppsScreen() {
     val apps by vm.filteredApps.collectAsStateWithLifecycle()
     val accessibilityOn by vm.accessibilityEnabled.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
+    val presetMessage by vm.presetMessage.collectAsStateWithLifecycle()
 
     var search by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<AppEntry?>(null) }
@@ -244,6 +280,16 @@ fun AppsScreen() {
 
             Gap(16)
 
+            if (settings.perAppEnabled) {
+                PaperModeCard(
+                    paperAppCount = settings.appOverrides.values.count { it.mode == OverrideMode.PAPER },
+                    message = presetMessage,
+                    onApplyPreset = { vm.applyPaperPreset() },
+                    onRemoveAll = { vm.removePaperOverrides() },
+                )
+                Gap(16)
+            }
+
             OutlinedTextField(
                 value = search,
                 onValueChange = {
@@ -277,6 +323,7 @@ fun AppsScreen() {
                         app = app,
                         overrideLabel = when (override?.mode) {
                             OverrideMode.NO_FILTER -> "No filter"
+                            OverrideMode.PAPER -> "Paper Mode"
                             OverrideMode.CUSTOM ->
                                 "${override.colorTempK}K · ${override.intensityPercent}%"
 
@@ -299,6 +346,57 @@ fun AppsScreen() {
                 vm.setOverride(override)
                 editing = null
             },
+        )
+    }
+}
+
+@Composable
+private fun PaperModeCard(
+    paperAppCount: Int,
+    message: String?,
+    onApplyPreset: () -> Unit,
+    onRemoveAll: () -> Unit,
+) {
+    SectionCard {
+        Text(
+            "Paper Mode · reading",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Gap(2)
+        Text(
+            "A cream paper finish with fibrous grain, made for long reading. " +
+                "It turns on by itself while a reading app is in front — even outside " +
+                "the usual schedule — and fades back when you leave the app.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Gap(10)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Button(onClick = onApplyPreset, modifier = Modifier.weight(1f)) {
+                Text("Set for PDF apps")
+            }
+            androidx.compose.material3.OutlinedButton(
+                onClick = onRemoveAll,
+                modifier = Modifier.weight(1f),
+                enabled = paperAppCount > 0,
+            ) {
+                Text(if (paperAppCount > 0) "Remove ($paperAppCount)" else "Remove")
+            }
+        }
+        message?.let {
+            Gap(8)
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Gap(2)
+        Text(
+            "Tune or remove Paper Mode per app by tapping it below.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -361,6 +459,10 @@ private fun AppOverrideSheet(
     var tempK by remember { mutableStateOf(current?.colorTempK ?: 2000) }
     var intensity by remember { mutableStateOf(current?.intensityPercent ?: 60) }
     var dim by remember { mutableStateOf(current?.dimPercent ?: 0) }
+    var paperTempK by remember { mutableStateOf(current?.paperColorTempK ?: 3200) }
+    var paperIntensity by remember { mutableStateOf(current?.paperIntensityPercent ?: 45) }
+    var paperDim by remember { mutableStateOf(current?.paperDimPercent ?: 8) }
+    var paperGrain by remember { mutableStateOf(current?.paperGrainPercent ?: 35) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -391,6 +493,11 @@ private fun AppOverrideSheet(
 
             listOf(
                 Triple(OverrideMode.DEFAULT, "Follow the schedule", "Use your normal profile."),
+                Triple(
+                    OverrideMode.PAPER,
+                    "Paper Mode (reading)",
+                    "Cream paper finish with grain while you read here — on even outside the schedule.",
+                ),
                 Triple(OverrideMode.NO_FILTER, "Turn off", "No filter while this app is open."),
                 Triple(OverrideMode.CUSTOM, "Custom settings", "Give this app its own warmth."),
             ).forEach { (m, title, subtitle) ->
@@ -441,6 +548,39 @@ private fun AppOverrideSheet(
                 )
             }
 
+            if (mode == OverrideMode.PAPER) {
+                Gap(8)
+                LabeledSlider(
+                    label = "Paper tone",
+                    valueText = "${paperTempK}K · ${ColorTemperature.describe(paperTempK)}",
+                    value = paperTempK.toFloat(),
+                    onValueChange = { paperTempK = it.toInt() },
+                    valueRange = 1000f..6500f,
+                    swatchColor = run {
+                        val c = ColorTemperature.rgb(paperTempK)
+                        androidx.compose.ui.graphics.Color(c[0], c[1], c[2])
+                    },
+                )
+                LabeledSlider(
+                    label = "Warmth intensity",
+                    valueText = "$paperIntensity%",
+                    value = paperIntensity.toFloat(),
+                    onValueChange = { paperIntensity = it.toInt() },
+                )
+                LabeledSlider(
+                    label = "Screen dim",
+                    valueText = "$paperDim%",
+                    value = paperDim.toFloat(),
+                    onValueChange = { paperDim = it.toInt() },
+                )
+                LabeledSlider(
+                    label = "Paper grain",
+                    valueText = "$paperGrain%",
+                    value = paperGrain.toFloat(),
+                    onValueChange = { paperGrain = it.toInt() },
+                )
+            }
+
             Gap(24)
             Row(
                 Modifier.fillMaxWidth().padding(bottom = 32.dp),
@@ -459,6 +599,10 @@ private fun AppOverrideSheet(
                                 colorTempK = tempK,
                                 intensityPercent = intensity,
                                 dimPercent = dim,
+                                paperColorTempK = paperTempK,
+                                paperIntensityPercent = paperIntensity,
+                                paperDimPercent = paperDim,
+                                paperGrainPercent = paperGrain,
                             ),
                         )
                     },

@@ -32,7 +32,7 @@ data class Profile(
 }
 
 @Serializable
-enum class OverrideMode { DEFAULT, NO_FILTER, CUSTOM }
+enum class OverrideMode { DEFAULT, NO_FILTER, CUSTOM, PAPER }
 
 @Serializable
 data class AppOverride(
@@ -41,6 +41,16 @@ data class AppOverride(
     val colorTempK: Int = 2000,
     val intensityPercent: Int = 60,
     val dimPercent: Int = 0,
+    /**
+     * Paper Mode parameters (used when [mode] == [OverrideMode.PAPER]): a
+     * warm reading tone with the fibrous paper grain, scoped to this app —
+     * typically PDF readers and e-book apps. Defaults match a comfortable
+     * long-reading setup; the user tunes them per app.
+     */
+    val paperColorTempK: Int = 3200,
+    val paperIntensityPercent: Int = 45,
+    val paperDimPercent: Int = 8,
+    val paperGrainPercent: Int = 35,
 )
 
 /** Filter parameters resolved for the current moment (profile or per-app override). */

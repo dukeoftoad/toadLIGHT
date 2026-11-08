@@ -1,9 +1,9 @@
 package com.toadlight.filter.filter
 
 import com.toadlight.filter.core.AppGraph
+import com.toadlight.filter.core.PaperDecisions
 import com.toadlight.filter.core.color.ColorTemperature
 import com.toadlight.filter.core.model.EngineParams
-import com.toadlight.filter.core.model.OverrideMode
 import com.toadlight.filter.core.model.ScheduleMode
 import com.toadlight.filter.core.schedule.ScheduleEvaluator
 import com.toadlight.filter.core.solar.SolarCalculator
@@ -52,6 +52,8 @@ data class EngineState(
     val scheduleMode: ScheduleMode = ScheduleMode.SUN,
     val usingFallbackSchedule: Boolean = false,
     val perAppSuppressing: Boolean = false,
+    /** True while the foreground app is on Paper Mode (reading finish). */
+    val paperAppActive: Boolean = false,
 )
 
 /**
@@ -86,6 +88,7 @@ class FilterEngine(private val graph: AppGraph) {
     private var lastPaused: Boolean? = null
     private var lastPreviewing: Boolean? = null
     private var lastSuppress: Boolean? = null
+    private var lastPaperApp: Boolean? = null
 
     fun observe(scope: CoroutineScope) {
         scope.launch {
@@ -131,7 +134,8 @@ class FilterEngine(private val graph: AppGraph) {
         val paused = settings.pausedUntil > now
         val fg = foregroundPackage.value
         val override = if (settings.perAppEnabled) settings.appOverrides[fg] else null
-        val suppress = override?.mode == OverrideMode.NO_FILTER
+        val suppress = PaperDecisions.isSuppressing(override)
+        val paperApp = PaperDecisions.isPaperApp(override)
 
         val horizon =
             if (settings.civilTwilight) SolarCalculator.HORIZON_CIVIL_DEG
@@ -149,17 +153,26 @@ class FilterEngine(private val graph: AppGraph) {
         val window = ScheduleEvaluator.evaluate(profile.schedule, settings, now, zone, sunProvider)
         val previewing = settings.previewUntil > now
         val effectiveOpen = window.open || previewing
-        val newTarget = settings.masterEnabled && !paused && !suppress && effectiveOpen
+        val newTarget = PaperDecisions.targetOn(
+            masterEnabled = settings.masterEnabled,
+            paused = paused,
+            suppress = suppress,
+            scheduleOpen = window.open,
+            previewing = previewing,
+            paperApp = paperApp,
+        )
 
         // A flip is "manual" when a user action caused it (master toggle,
-        // pause/resume, preview start/expiry, per-app suppression) — including
-        // the moment such a flag returns to neutral. Those transitions use the
-        // quick fade; pure schedule flips (sunset/sunrise) use the long fade.
+        // pause/resume, preview start/expiry, per-app suppression, entering
+        // or leaving a Paper Mode app) — including the moment such a flag
+        // returns to neutral. Those transitions use the quick fade; pure
+        // schedule flips (sunset/sunrise) use the long fade.
         val manualCause = paused || !settings.masterEnabled || suppress || previewing ||
             lastMaster != settings.masterEnabled ||
             lastPaused != paused ||
             lastPreviewing != previewing ||
-            lastSuppress != suppress
+            lastSuppress != suppress ||
+            lastPaperApp != paperApp
         val profileSwitched = lastProfileId != null && profile.id != lastProfileId
 
         lastProfileId = profile.id
@@ -167,6 +180,7 @@ class FilterEngine(private val graph: AppGraph) {
         lastPaused = paused
         lastPreviewing = previewing
         lastSuppress = suppress
+        lastPaperApp = paperApp
 
         if (newTarget != targetOn) {
             blendAtFlip = lastBlend
@@ -179,15 +193,11 @@ class FilterEngine(private val graph: AppGraph) {
         val blend = blendValue(newTarget, now)
         lastBlend = blend
 
-        val params: EngineParams = if (override?.mode == OverrideMode.CUSTOM && effectiveOpen && !paused) {
-            EngineParams(override.colorTempK, override.intensityPercent, override.dimPercent)
-        } else {
-            EngineParams(profile.colorTempK, profile.intensityPercent, profile.dimPercent)
-        }
+        val params: EngineParams = PaperDecisions.params(override, profile, effectiveOpen, paused)
 
         val tintArgb = ColorTemperature.argb(params.colorTempK)
-        val paperOn = profile.paperFinish
-        val paperIntensity = profile.paperIntensityPercent.coerceIn(0, 100)
+        val paperIntensity = PaperDecisions.paperIntensity(override, profile)
+        val paperOn = paperIntensity > 0
 
         val nextChange = listOfNotNull(
             window.nextChangeAt,
@@ -222,6 +232,7 @@ class FilterEngine(private val graph: AppGraph) {
             scheduleMode = profile.schedule.mode,
             usingFallbackSchedule = window.usingFallback,
             perAppSuppressing = suppress,
+            paperAppActive = paperApp,
         )
     }
 

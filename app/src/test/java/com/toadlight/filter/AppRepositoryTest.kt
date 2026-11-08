@@ -253,6 +253,37 @@ class AppRepositoryTest {
         assertTrue("com.other.app" in settings.appOverrides)
     }
 
+    @Test
+    fun `paper mode override round-trips with all paper fields`() = runBlocking {
+        val paper = com.toadlight.filter.core.model.AppOverride(
+            packageName = "com.adobe.reader",
+            mode = com.toadlight.filter.core.model.OverrideMode.PAPER,
+            paperColorTempK = 2900,
+            paperIntensityPercent = 52,
+            paperDimPercent = 11,
+            paperGrainPercent = 38,
+        )
+        repo.setAppOverride(paper)
+
+        val settings = repo.settingsFlow.first()
+        val stored = settings.appOverrides["com.adobe.reader"]
+            ?: error("paper override must be stored")
+        assertEquals(com.toadlight.filter.core.model.OverrideMode.PAPER, stored.mode)
+        assertEquals(2900, stored.paperColorTempK)
+        assertEquals(52, stored.paperIntensityPercent)
+        assertEquals(11, stored.paperDimPercent)
+        assertEquals(38, stored.paperGrainPercent)
+
+        // switching the same app back to DEFAULT removes it entirely
+        repo.setAppOverride(
+            com.toadlight.filter.core.model.AppOverride(
+                packageName = "com.adobe.reader",
+                mode = com.toadlight.filter.core.model.OverrideMode.DEFAULT,
+            )
+        )
+        assertTrue("com.adobe.reader" !in repo.settingsFlow.first().appOverrides)
+    }
+
     // ------------------------------------------------------------------
     // Raw store interaction guard
     // ------------------------------------------------------------------
