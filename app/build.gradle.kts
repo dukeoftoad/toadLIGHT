@@ -20,8 +20,8 @@ android {
         applicationId = "com.toadlight.filter"
         minSdk = 34
         targetSdk = 36
-        versionCode = 13
-        versionName = "1.4.8"
+        versionCode = 14
+        versionName = "1.4.9"
     }
 
     signingConfigs {
@@ -104,4 +104,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
+    // JVM DataStore for AppRepository concurrency tests (matches the runtime artifact).
+    testImplementation("androidx.datastore:datastore-preferences-core:1.1.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 }

@@ -1,6 +1,8 @@
 package com.toadlight.filter.data
 
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -11,6 +13,8 @@ import com.toadlight.filter.core.model.Profile
 import com.toadlight.filter.core.model.Schedule
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
@@ -19,36 +23,63 @@ private val Context.toadlightDataStore by preferencesDataStore(name = "toadlight
 
 /**
  * Single source of truth for profiles and settings, persisted as JSON in
- * Preferences DataStore. All writes are atomic and flows are cold reads on
- * top of DataStore's transactional log.
+ * Preferences DataStore.
+ *
+ * ## Concurrency contract
+ *
+ * The app writes from many independent coroutines on different threads:
+ * the Compose UI (settings/profile screens, onboarding), the ViewModel, the
+ * overlay [com.toadlight.filter.filter.FilterService] loop, both quick-setting
+ * tiles, the boot receiver and the floating bubble. DataStore serializes
+ * individual `edit` transactions, but a *read-modify-write* cycle is only as
+ * atomic as the gap between its read and its write: two overlapping cycles
+ * silently drop one writer's change (the classic lost update — e.g. a
+ * profile added while the tile cycles modes simply vanishes).
+ *
+ * Every public mutating function here therefore runs its whole
+ * read → transform → write cycle under [writeMutex], a single-writer
+ * discipline. This class is the *only* writer of the store (verified: no
+ * other component touches the DataStore directly), so the mutex plus
+ * DataStore's own atomic commits make all updates linearizable.
+ *
+ * Public functions never call each other (only the private `*Locked`
+ * primitives, which must be invoked while holding the mutex) — a Mutex is
+ * not re-entrant, so nesting would deadlock.
+ *
+ * @param store injected so JVM unit tests can run a real DataStore against
+ *   a temp file without Android.
  */
-class AppRepository(private val context: Context) {
+class AppRepository(private val store: DataStore<Preferences>) {
+
+    constructor(context: Context) : this(context.toadlightDataStore)
 
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
 
+    /** Serializes every read-modify-write cycle; see the class docs. */
+    private val writeMutex = Mutex()
+
     private val keySettings = stringPreferencesKey("settings_json")
     private val keyProfiles = stringPreferencesKey("profiles_json")
     private val keyActiveProfile = stringPreferencesKey("active_profile_id")
 
-    val settingsFlow = context.toadlightDataStore.data.map { prefs ->
+    val settingsFlow = store.data.map { prefs ->
         decode(prefs[keySettings], AppSettings())
     }
 
-    val profilesFlow = context.toadlightDataStore.data.map { prefs ->
+    val profilesFlow = store.data.map { prefs ->
         decode(prefs[keyProfiles], emptyList<Profile>())
     }
 
-    val activeProfileIdFlow = context.toadlightDataStore.data.map { prefs ->
+    val activeProfileIdFlow = store.data.map { prefs ->
         prefs[keyActiveProfile] ?: ""
     }
 
     /** Creates the starter profiles the very first time the app runs. */
-    suspend fun seedIfEmpty() {
-        val profiles = profilesFlow.first()
-        if (profiles.isEmpty()) {
+    suspend fun seedIfEmpty() = writeMutex.withLock {
+        if (readProfilesLocked().isEmpty()) {
             val seeds = listOf(
                 Profile(
                     id = UUID.randomUUID().toString(),
@@ -69,13 +100,22 @@ class AppRepository(private val context: Context) {
                     builtIn = true,
                 ),
             )
-            saveProfiles(seeds, seeds.first().id)
+            writeProfilesLocked(seeds, seeds.first().id)
         }
     }
 
+    /**
+     * Applies [transform] to the settings. The base settings are decoded from
+     * the transaction's own preferences (not from a side flow read), so the
+     * transform always sees the store state as of this write — and the whole
+     * cycle is serialized by [writeMutex] against the other writers.
+     */
     suspend fun updateSettings(transform: (AppSettings) -> AppSettings) {
-        context.toadlightDataStore.edit { prefs ->
-            prefs[keySettings] = json.encodeToString(transform(settingsFlow.first()))
+        writeMutex.withLock {
+            store.edit { prefs ->
+                val current = decode(prefs[keySettings], AppSettings())
+                prefs[keySettings] = json.encodeToString(transform(current))
+            }
         }
     }
 
@@ -114,16 +154,21 @@ class AppRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Replaces the whole profile list (and optionally the active profile id)
+     * in one atomic DataStore transaction. Direct writes of a *complete*
+     * list — no read involved — so it only needs the mutex for ordering
+     * against the other read-modify-write cycles.
+     */
     suspend fun saveProfiles(profiles: List<Profile>, activeId: String?) {
-        context.toadlightDataStore.edit { prefs ->
-            prefs[keyProfiles] = json.encodeToString(profiles)
-            if (activeId != null) prefs[keyActiveProfile] = activeId
+        writeMutex.withLock {
+            writeProfilesLocked(profiles, activeId)
         }
     }
 
     suspend fun setActiveProfile(id: String) {
-        context.toadlightDataStore.edit { prefs ->
-            prefs[keyActiveProfile] = id
+        writeMutex.withLock {
+            store.edit { prefs -> prefs[keyActiveProfile] = id }
         }
     }
 
@@ -135,51 +180,80 @@ class AppRepository(private val context: Context) {
      * @return the newly active profile, or null when switching is impossible
      *   (no profiles stored yet).
      */
-    suspend fun cycleNextProfile(): Profile? {
-        val list = profilesFlow.first()
+    suspend fun cycleNextProfile(): Profile? = writeMutex.withLock {
+        val list = readProfilesLocked()
         if (list.isEmpty()) return null
-        val active = activeProfileIdFlow.first()
+        val active = readActiveProfileIdLocked()
         val index = list.indexOfFirst { it.id == active }.takeIf { it >= 0 } ?: 0
         val next = list[(index + 1) % list.size]
-        setActiveProfile(next.id)
-        return next
+        store.edit { prefs -> prefs[keyActiveProfile] = next.id }
+        next
     }
 
     suspend fun addProfile(profile: Profile) {
-        saveProfiles(profilesFlow.first() + profile, null)
+        writeMutex.withLock {
+            writeProfilesLocked(readProfilesLocked() + profile, null)
+        }
     }
 
     suspend fun updateProfile(profile: Profile) {
-        saveProfiles(profilesFlow.first().map { if (it.id == profile.id) profile else it }, null)
+        writeMutex.withLock {
+            writeProfilesLocked(
+                readProfilesLocked().map { if (it.id == profile.id) profile else it },
+                null,
+            )
+        }
     }
 
     suspend fun deleteProfile(id: String) {
-        val current = profilesFlow.first()
-        if (current.size <= 1) return // never delete the last profile
-        val remaining = current.filterNot { it.id == id }
-        val active = activeProfileIdFlow.first()
-        saveProfiles(
-            remaining,
-            if (active == id) remaining.firstOrNull()?.id else null,
-        )
+        writeMutex.withLock {
+            val current = readProfilesLocked()
+            if (current.size <= 1) return // never delete the last profile
+            val remaining = current.filterNot { it.id == id }
+            val active = readActiveProfileIdLocked()
+            writeProfilesLocked(
+                remaining,
+                if (active == id) remaining.firstOrNull()?.id else null,
+            )
+        }
     }
 
-    suspend fun duplicateProfile(profile: Profile): Profile {
-        val current = profilesFlow.first()
+    suspend fun duplicateProfile(profile: Profile): Profile = writeMutex.withLock {
+        val current = readProfilesLocked()
         val copy = profile.copy(
             id = UUID.randomUUID().toString(),
             name = uniqueName(current, profile.name),
             builtIn = false,
         )
-        saveProfiles(current + copy, copy.id)
-        return copy
+        writeProfilesLocked(current + copy, copy.id)
+        copy
     }
 
     suspend fun updateActiveProfile(transform: (Profile) -> Profile) {
-        val list = profilesFlow.first()
-        val active = activeProfileIdFlow.first()
-        val target = list.firstOrNull { it.id == active } ?: list.firstOrNull() ?: return
-        saveProfiles(list.map { if (it.id == target.id) transform(it) else it }, null)
+        writeMutex.withLock {
+            val list = readProfilesLocked()
+            val active = readActiveProfileIdLocked()
+            val target = list.firstOrNull { it.id == active } ?: list.firstOrNull() ?: return
+            writeProfilesLocked(list.map { if (it.id == target.id) transform(it) else it }, null)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Private primitives — call ONLY while holding [writeMutex].
+    // ------------------------------------------------------------------
+
+    private suspend fun readProfilesLocked(): List<Profile> =
+        decode(store.data.first()[keyProfiles], emptyList())
+
+    private suspend fun readActiveProfileIdLocked(): String =
+        store.data.first()[keyActiveProfile] ?: ""
+
+    /** Writes the list (and active id when non-null) in one atomic edit. */
+    private suspend fun writeProfilesLocked(profiles: List<Profile>, activeId: String?) {
+        store.edit { prefs ->
+            prefs[keyProfiles] = json.encodeToString(profiles)
+            if (activeId != null) prefs[keyActiveProfile] = activeId
+        }
     }
 
     private fun uniqueName(existing: List<Profile>, base: String): String {
