@@ -95,10 +95,10 @@ private fun ColorScheme.amoled(): ColorScheme = copy(
     surface = Color.Black,
     surfaceDim = Color.Black,
     surfaceContainerLowest = Color.Black,
-    surfaceContainerLow = Color(0xFF0D0D11),
-    surfaceContainer = Color(0xFF141419),
-    surfaceContainerHigh = Color(0xFF1E1E24),
-    surfaceContainerHighest = Color(0xFF28282E),
+    surfaceContainerLow = Color(0xFF0B100F),
+    surfaceContainer = Color(0xFF131A18),
+    surfaceContainerHigh = Color(0xFF1A2320),
+    surfaceContainerHighest = Color(0xFF212D29),
 )
 
 @Composable
