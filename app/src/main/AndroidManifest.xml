@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Offline first. INTERNET exists solely for update checks
+         (a silent once-per-launch GitHub releases check + the user-initiated
+         "Check for updates" flow and its APK download) — no periodic network,
+         analytics or telemetry. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Core: draw the warmth filter over other apps -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
@@ -20,6 +26,11 @@
 
     <!-- Offer the user a one-tap battery-optimization exemption dialog -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Needed so the downloaded update APK can be handed to the system package
+         installer. Android still asks the user to allow installs from this app
+         first ("Install unknown apps"). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Android 11+ package visibility: list launchable apps for per-app behavior -->
     <queries>

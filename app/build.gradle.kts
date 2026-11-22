@@ -20,8 +20,8 @@ android {
         applicationId = "com.toadlight.filter"
         minSdk = 34
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.5.0"
+        versionCode = 16
+        versionName = "1.5.1"
     }
 
     signingConfigs {
@@ -60,6 +60,10 @@ android {
 
     buildFeatures {
         compose = true
+        // BuildConfig.VERSION_NAME drives the in-app update check (ported from
+        // toadFILES): the installed version is compared against the latest GitHub
+        // release tag.
+        buildConfig = true
     }
 
     lint {
@@ -104,6 +108,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for the JVM UpdateChecker parsing tests — Android ships these
+    // classes in the platform, but the unit-test classpath only has stubs; this
+    // artifact (placed ahead of the mockable android.jar) provides them.
+    testImplementation("org.json:json:20240303")
     // JVM DataStore for AppRepository concurrency tests (matches the runtime artifact).
     testImplementation("androidx.datastore:datastore-preferences-core:1.1.1")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")

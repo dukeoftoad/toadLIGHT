@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -21,9 +22,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -42,6 +46,8 @@ import com.toadlight.filter.ui.onboarding.OnboardingScreen
 import com.toadlight.filter.ui.profiles.ProfilesScreen
 import com.toadlight.filter.ui.settings.SettingsScreen
 import com.toadlight.filter.ui.theme.toadLIGHTTheme
+import com.toadlight.filter.update.StartupUpdateCheck
+import com.toadlight.filter.update.UpdateBanner
 
 class MainActivity : ComponentActivity() {
 
@@ -164,9 +170,21 @@ private data class TopDestination(
 
 @Composable
 fun MainScaffold() {
+    val graph = LocalContext.current.appGraph
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // In-app update (ported from toadFILES): one silent update check per app
+    // process, fired on open — never periodic, never a download. Failures
+    // (airplane mode, GitHub down, rate limit) stay silent; only a newer
+    // release WITH an APK asset ever populates the banner. The process-wide
+    // instance guarantees the check runs at most once even if this composable
+    // is re-created.
+    val startupUpdate = remember { StartupUpdateCheck.instance }
+    LaunchedEffect(Unit) { startupUpdate.checkOnce(graph.scope) }
+    val updateBanner by startupUpdate.banner.collectAsStateWithLifecycle()
+    val bannerDismissed by startupUpdate.bannerDismissed.collectAsStateWithLifecycle()
 
     val destinations = listOf(
         TopDestination("home", "Home", Icons.Rounded.Bedtime),
@@ -198,15 +216,28 @@ fun MainScaffold() {
             }
         },
     ) { padding ->
-        NavHost(
-            navController = navController,
-            startDestination = "home",
-            modifier = Modifier.padding(padding),
-        ) {
-            composable("home") { HomeScreen() }
-            composable("profiles") { ProfilesScreen() }
-            composable("apps") { AppsScreen() }
-            composable("settings") { SettingsScreen() }
+        Column(Modifier.padding(padding)) {
+            // The update banner is optional and must never gate the main UI.
+            // Tapping "Update" deep-links to the Settings update panel, which
+            // arrives already seeded with this release.
+            if (updateBanner != null && !bannerDismissed) {
+                UpdateBanner(
+                    release = updateBanner,
+                    onOpenUpdateFlow = {
+                        navController.navigate("settings") { launchSingleTop = true }
+                    },
+                    onDismiss = startupUpdate::dismissBanner,
+                )
+            }
+            NavHost(
+                navController = navController,
+                startDestination = "home",
+            ) {
+                composable("home") { HomeScreen() }
+                composable("profiles") { ProfilesScreen() }
+                composable("apps") { AppsScreen() }
+                composable("settings") { SettingsScreen() }
+            }
         }
     }
 }

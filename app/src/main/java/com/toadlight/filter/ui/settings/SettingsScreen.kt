@@ -54,9 +54,11 @@ import com.toadlight.filter.core.model.AppSettings
 import com.toadlight.filter.core.model.ThemeMode
 import com.toadlight.filter.core.util.LocationGrabber
 import com.toadlight.filter.ui.components.Gap
+import com.toadlight.filter.ui.components.HelperText
 import com.toadlight.filter.ui.components.LabeledSlider
 import com.toadlight.filter.ui.components.SectionCard
 import com.toadlight.filter.ui.components.SettingsRow
+import com.toadlight.filter.util.UpdateIntents
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(private val graph: AppGraph) : ViewModel() {
@@ -93,9 +95,11 @@ fun SettingsScreen() {
     val context = LocalContext.current
     val graph = context.appGraph
     val vm: SettingsViewModel = viewModel { SettingsViewModel(graph) }
+    val updateVm: UpdateViewModel = viewModel { UpdateViewModel() }
 
     val settings by vm.settings.collectAsStateWithLifecycle()
     val a11yConnected by vm.a11yConnected.collectAsStateWithLifecycle()
+    val updateState by updateVm.state.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showManualLocation by remember { mutableStateOf(false) }
@@ -408,6 +412,28 @@ fun SettingsScreen() {
 
             Gap(16)
 
+            // ------------------------------------------------------ updates ---
+            // In-app update flow, ported from toadFILES: GitHub Releases check
+            // (silent once per app open + user-initiated), APK download via the
+            // system DownloadManager, installer handoff with the "Install unknown
+            // apps" round-trip. Nothing downloads without an explicit tap.
+            SectionCard(title = "Updates") {
+                HelperText(
+                    "toadLIGHT contacts GitHub Releases once per app open (silently, in " +
+                        "the background) and whenever you tap the button below. Nothing about " +
+                        "this device is sent, and nothing downloads without a tap."
+                )
+                Gap(8)
+                UpdatePanel(
+                    state = updateState,
+                    onCheck = updateVm::checkForUpdates,
+                    onDownloadInstall = { updateVm.downloadAndInstall(context) },
+                    onDismiss = updateVm::clearUpdateState,
+                )
+            }
+
+            Gap(16)
+
             // -------------------------------------------------------- about --
             SectionCard(title = "About") {
                 SettingsRow(
@@ -430,6 +456,19 @@ fun SettingsScreen() {
                 SettingsRow(
                     title = "Pricing",
                     subtitle = "Every feature is free, forever – no Pro tier",
+                )
+                SettingsRow(
+                    title = "Source code",
+                    subtitle = "github.com/dukeoftoad/toadLIGHT",
+                    onClick = { UpdateIntents.openUrl(context, REPO_URL) },
+                    trailing = {
+                        Text(
+                            "Open",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    },
                 )
             }
 
@@ -573,6 +612,8 @@ private fun locationSubtitle(settings: AppSettings): String =
 private fun versionName(context: Context): String = runCatching {
     context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "?"
 }.getOrDefault("?")
+
+private const val REPO_URL = "https://github.com/dukeoftoad/toadLIGHT"
 
 @Composable
 private fun ManualLocationDialog(
